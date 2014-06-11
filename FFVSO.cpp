@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.1 2014/06/09 23:27:24 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.2 2014/06/10 01:49:50 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * declarations (function prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.2  2014/06/10 01:49:50  agmsmith
+ * First version which runs, though it doesn't do much.
+ *
  * Revision 1.1  2014/06/09 23:27:24  agmsmith
  * Initial revision
  */
@@ -23,6 +26,7 @@
 /* Standard C Library. */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 
 /* Standard C++ library. */
@@ -42,14 +46,11 @@
  * times.
  */
 
-struct Show
-{
-  std::string m_ShowName;
-  bool m_IsFavourite;
-};
-
 typedef struct ShowStruct
 {
+  std::string m_ShowName;
+    /* A redundant copy of the show's name (it's also in the map). */
+
   bool m_IsFavourite;
     /* TRUE if the show is one of the user's favourite ones.  They get
     highlighted differently and there is a count of favourite shows not yet
@@ -71,7 +72,7 @@ typedef std::map<std::string, ShowRecord> ShowMap;
  */
 
 ShowMap g_AllShowsMap;
-  /* A list of all the shows. */
+  /* A list of all the uniquely named shows. */
 
 
 /******************************************************************************
@@ -80,7 +81,30 @@ ShowMap g_AllShowsMap;
 
 int main (int argc, char**)
 {
-  printf ("Content-Type: text/html\r\n\r\n");
+  printf ("Content-Type: text/plain\r\n\r\n");
+
+  const char *pContentLength;
+  int ContentLength = 0;
+  pContentLength = getenv ("CONTENT_LENGTH");
+  if (pContentLength != NULL)
+    ContentLength = atoi (pContentLength);
+  if (ContentLength < 0)
+    ContentLength = 0;
+  if (ContentLength > 10000000)
+    ContentLength = 10000000;
+
+  int AmountRead = 0;
+  while (AmountRead < ContentLength)
+  {
+    char Letter = getchar();
+    if (EOF == Letter)
+      break;
+    AmountRead++;
+    putchar (Letter);
+  }
+
+  printf ("\nContent length is %d.\n", ContentLength);
+  printf ("AmountRead is %d.\n", AmountRead);
   printf ("The end.\n");
   return 0;
 }
