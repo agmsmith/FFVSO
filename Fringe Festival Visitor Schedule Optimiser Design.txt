@@ -1,0 +1,41 @@
+Fringe Festival Visitor Schedule Optimiser
+
+by AGMS20140609
+
+I was spurred on to writing it after getting fed up with manually moving text (lines listing shows in the 2014 Ottawa Fringe Festival) around in a text file and losing track of duplicates and missing shows.  Not sure if it's worse now that there are more shows than you can possibly see, but previously it was a bit of work to get them all to fit.  Too much work.
+
+
+Design Things
+
+- Text box for entering the schedule data.  Whole state in one big text blob.  Ideally just copy the Fringe web site schedule text (the occasional day heading plus lines with time, show title, venue) to get started.  End user can put in their own text file, which lets you do other festivals, not just Ottawa.  And the user can save it to preserve their state.
+- Check boxes for specifying which shows you want to include in your schedule, and a submit button to update them.
+- Count of conflicts.  Also highlight conflicting items (red).
+- Count of favourites missing.  Also highlight all favourites (light blue if not selected, dark blue for the selected one).
+- Separate section showing the list of just your selected events.
+- Printable web page, essentially just the your selected events listing on a page by itself.
+- Debug section showing the list of shows (show title is the key), so you can catch spelling mistakes, along with a list of times for each show (sorted by venue first to catch venue spelling problems).
+
+
+Creaping Featuritis
+
+- Highlight big gaps, anything larger than some configurable limit.  Can enter a description - Dinner - and turn gap into a show.
+- Warn about venue distances being too long to walk in the alloted time.
+
+
+Data Details
+
+The big text box contains a line for each event (I'll be more professional and call them "events" rather than "shows") and other statements.  Tabs separate the fields.  HTML can be included verbatim.
+
+Data for event listings:
+Fields are: Time, event name, venue, duration, selected.
+Time: at a minimum the time of day with a colon, using a 24 hour clock, though you can specify any full date that POSIX parsedate() can read.  Will inherit the day and year from a global that is updated as non-event lines with dates are read.
+Event name: Just the name, can include HTML.
+Duration: Number of minutes long the event is.  "60m" or "60" for an hour.  Defaults to an hour if not specified.
+Selected: "Selected" for a show that is in the user's schedule, can be abbreviated to the first letter.  "Unselected" or not specified for events not in the schedule.
+
+Data for list of favourites:
+"Favourite" or just "F", followed by a tab and the event name for a favourite show.
+
+Data for day change:
+Day name, month, day of month number, separated by spaces.  For example "FRIDAY JUNE 20".
+This will change the default day for the events after this line, if they just specify time of day.
