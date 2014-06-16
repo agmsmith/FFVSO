@@ -7,6 +7,9 @@
 <META NAME="description" CONTENT="A web app for scheduling attendance at theatre performances so that you don't miss the shows you want, and pack in as many as possible while avoiding duplicates.">
 <!--
 ; $Log: Ottawa2014FringeFestivalOptimiserStartHere.html,v $
+; Revision 1.2  2014/06/16 17:53:47  agmsmith
+; Make text box bigger.
+;
 ; Revision 1.1  2014/06/10 00:15:08  agmsmith
 ; Initial revision
 -->
@@ -15,6 +18,9 @@
 <H1>Fringe Theatre Festival Visitor Schedule Optimiser</H1>
 
 <FORM ACTION="http://www.agmsmith.ca/cgi-bin/FFVSO.cgi" method="POST">
+<P>A checkbox:
+<INPUT TYPE="CHECKBOX" NAME="2014-06-19-18:00-Academic Hall" VALUE="blah"  CHECKED>Selected</INPUT>
+
 <TEXTAREA NAME="SavedState" cols=80 rows=40>
     THURSDAY JUNE 19
 
@@ -434,7 +440,7 @@ Midnight 	Fringe Late Night 	Arts Court Studio
 21:00 	Metro Best of Fest 	Studio Léonard-Beaulne
 21:30 	Metro Best of Fest 	Academic Hall
 </TEXTAREA>
-<INPUT TYPE="SUBMIT" value="Update Schedule">
+<INPUT TYPE="SUBMIT" VALUE="Update Schedule">
 </FORM>
 </BODY>
 </HTML>
