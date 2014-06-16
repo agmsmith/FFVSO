@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.3 2014/06/11 01:09:01 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.4 2014/06/11 02:50:05 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,11 @@
  * declarations (function prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.4  2014/06/11 02:50:05  agmsmith
+ * Now receives the text from the form and converts it
+ * from Form URL encoded to plain text.  Still have to do
+ * the line end conversion from CRLF to LF.
+ *
  * Revision 1.3  2014/06/11 01:09:01  agmsmith
  * Read standard input and echo it back.  Seems to be missing
  * data for large text boxes.
@@ -32,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 
 /* Standard C++ library. */
 
@@ -78,10 +84,27 @@ typedef std::map<std::string, ShowRecord> ShowMap;
 ShowMap g_AllShowsMap;
   /* A list of all the uniquely named shows. */
 
-char *g_InputStateText;
+char *g_InputFormText;
   /* The state of the whole thing, as received from the web browser textarea
   box.  Will be decoded and line ends fixed up before being used to set the
-  list of shows and their selection times.  NUL terminated string. */
+  list of shows and their selection times.  NUL terminated string which gets
+  modified to be several NUL terminated substrings. */
+
+
+struct CompareCharStruct
+{
+  bool operator() ( /* Our less-than comparison function for sorting. */
+    const char * ItemA,
+    const char * ItemB) const
+  {
+    return (strcmp (ItemA, ItemB) < 0);
+  };
+};
+
+typedef std::map<char *, const char *, CompareCharStruct> FormNameToValuesMap;
+
+FormNameToValuesMap g_FormNameValuePairs;
+  /* The form input data decoded and broken up into name and value pairs. Usually one pair for each of the form elements, except checkboxes which are simply missing if not selected. */
 
 
 /******************************************************************************
@@ -93,19 +116,16 @@ char *g_InputStateText;
 void FormEncodedToPlainText (char *pBuffer)
 {
   char *pDest;
+  char Letter;
   char *pSource;
 
   pSource = pDest = pBuffer;
-  while (*pSource != 0)
+  while ((Letter = *pSource++) != 0)
   {
-    char Letter = *pSource++;
-
     if (Letter == '+') // Just a space.
     {
       *pDest++ = ' ';
     }
-    else if (Letter == '\r' || Letter == '\n')
-      break; // A real end of line marks the end of the text.
     else if (Letter == '%') // Hex encoded byte.
     {
       char Hex1 = tolower (pSource[0]);
@@ -143,6 +163,67 @@ void FormEncodedToPlainText (char *pBuffer)
     }
   }
   *pDest = 0;
+
+  // Pass 2 - convert carriage returns and linefeeds to just linefeeds.
+
+  pSource = pDest = pBuffer;
+  while ((Letter = *pSource++) != 0)
+  {
+    if (Letter == '\r')
+    {
+      if (*pSource == '\n')
+        pSource++; // Convert CRLF to just LF.
+
+      *pDest++ = '\n';
+    }
+    else if (Letter == '\n')
+    {
+      if (*pSource == '\r')
+        pSource++; // Convert the rarer LFCR to just LF.
+
+      *pDest++ = '\n';
+    }
+    else
+      *pDest++ = Letter;
+  }
+  *pDest = 0;
+}
+
+
+/******************************************************************************
+ * Break the form input data into pairs of name and associated value.  Also decodes the text.  Overwrites the global g_InputFormText with the decoded text, also adding NUL bytes after each name and value.  The format is a name followed by an equals sign, followed by the value, followed by an ampersand and then the next name and value etc.  Last one has end of string at the end instead of an ampersand.
+ */
+
+void BuildFormNameAndValuePairsFromFormInput ()
+{
+  char *pName;
+  char *pSource;
+  char *pValue;
+
+  pSource = g_InputFormText;
+  while (*pSource != 0)
+  {
+    pName = pSource;
+    while (*pSource != '=' && *pSource != 0)
+      pSource++;
+    if (*pSource == 0)
+      break; // Malformed pair, no value portion.
+    *pSource++ = 0; // Terminate name portion of the string.
+
+    pValue = pSource;
+    while (*pSource != '&' && *pSource != 0)
+      pSource++;
+    *pSource++ = 0; // Terminate value portion of the string.
+
+    if (*pName != 0) // Ignore empty names.
+    {
+      FormEncodedToPlainText (pName);
+      FormEncodedToPlainText (pValue);
+      FormNameToValuesMap::value_type NewPair (pName, pValue);
+
+      g_FormNameValuePairs.insert (NewPair);
+    }
+  }
 }
 
 
@@ -172,26 +253,27 @@ int main (int argc, char**)
   if (ContentLength > MAX_CONTENT_LENGTH)
     ContentLength = MAX_CONTENT_LENGTH;
 
-  g_InputStateText = new char [ContentLength+1];
+  g_InputFormText = new char [ContentLength+1];
 
-  int AmountRead = fread (g_InputStateText, 1, ContentLength, stdin);
-  g_InputStateText[AmountRead ] = 0;
+  int AmountRead = fread (g_InputFormText, 1, ContentLength, stdin);
+  g_InputFormText[AmountRead ] = 0;
 
   printf ("Content-Type: text/plain\r\n\r\n"); // Magic CGI header.
   printf ("Content length is %d.\n", ContentLength);
   printf ("AmountRead is %d.\n", AmountRead);
-  printf ("Original text: %s\n", g_InputStateText);
+  printf ("Original text: %s\n", g_InputFormText);
 
-  const char *StartString = "SavedState=";
-  char *pStartOfState = strstr (g_InputStateText, StartString); 
-  if (pStartOfState != NULL)
+  BuildFormNameAndValuePairsFromFormInput ();
+
+  printf ("Converted form input:\n");
+  for (FormNameToValuesMap::iterator it = g_FormNameValuePairs.begin();
+  it != g_FormNameValuePairs.end(); ++it)
   {
-    pStartOfState += strlen (StartString); // Skip over starting string.
-    FormEncodedToPlainText (pStartOfState);
-    int AmountWritten = fwrite (pStartOfState, 1, strlen (pStartOfState), stdout);
-    printf ("\nAmountWritten: %d\nThe end.\n", AmountWritten);
+    printf ("Name \"%s\", value: %s\n", it->first, it->second);
   }
 
-  delete [] g_InputStateText;
+  g_FormNameValuePairs.clear ();
+  delete [] g_InputFormText;
   return 0;
 }
+
