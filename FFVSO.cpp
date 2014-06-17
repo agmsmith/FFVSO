@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.4 2014/06/11 02:50:05 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.5 2014/06/16 19:20:40 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -7,15 +7,19 @@
  * on the same web page.  Statistics showing conflicts in time, missing
  * favourite shows and other such info guide the user in selecting shows.
  *
- * Note that this uses the AGMS coding style, not the OpenTracker one.  That
- * means no tabs, indents are two spaces, m_ is the prefix for member
- * variables, g_ is the prefix for global names, C style comments, constants
- * are in all capital letters and most other things are mixed case, it's word
- * wrapped to fit in 79 characters per line to make proofreading on paper
- * easier, and functions are listed in reverse dependency order so that forward
- * declarations (function prototypes with no code) aren't needed.
+ * Note that this uses the AGMS coding style.  That means no tabs, indents are
+ * two spaces, m_ is the prefix for member variables, g_ is the prefix for
+ * global names, C style comments, constants are in all capital letters and
+ * most other things are mixed case, it's word wrapped to fit in 79 characters
+ * per line to make proofreading on paper easier, and functions are listed in
+ * reverse dependency order so that forward declarations (function prototypes
+ * with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.5  2014/06/16 19:20:40  agmsmith
+ * Break the form input into name and value pairs, and apply the decoding
+ * to each of the pair elements separately.
+ *
  * Revision 1.4  2014/06/11 02:50:05  agmsmith
  * Now receives the text from the form and converts it
  * from Form URL encoded to plain text.  Still have to do
@@ -44,10 +48,7 @@
 /* STL (Standard Template Library) headers. */
 
 #include <map>
-#include <queue>
-#include <set>
 #include <string>
-#include <vector>
 
 
 /******************************************************************************
@@ -58,9 +59,6 @@
 
 typedef struct ShowStruct
 {
-  std::string m_ShowName;
-    /* A redundant copy of the show's name (it's also in the map). */
-
   bool m_IsFavourite;
     /* TRUE if the show is one of the user's favourite ones.  They get
     highlighted differently and there is a count of favourite shows not yet
@@ -71,25 +69,106 @@ typedef struct ShowStruct
     only zero or one.  If more than one then it's been overscheduled, unless
     the user really wants to see it several times. */
 
+  std::string m_ShowURL;
+    /* A link to a web page about the show. */
+
 } ShowRecord, *ShowPointer;
 
 typedef std::map<std::string, ShowRecord> ShowMap;
-  /* A collection of all the shows, each one just listed once. */
+typedef ShowMap::iterator ShowIterator;
+
+ShowMap g_AllShows;
+  /* A collection of all the uniquely named shows.  Hope the input data uses
+  exactly the same name for each show! */
 
 
 /******************************************************************************
- * Global variables, and not-so-variable things too.  Grouped by functionality.
+ * Class which contains information about a single venue.  Essentially just the
+ * venue name (which is also the key).
  */
 
-ShowMap g_AllShowsMap;
-  /* A list of all the uniquely named shows. */
+typedef struct VenueStruct
+{
+  std::string m_VenueURL;
+    /* A link to a web page about the venue. */
+
+} VenueRecord, *VenuePointer;
+
+typedef std::map<std::string, VenueRecord> VenueMap;
+typedef VenueMap::iterator VenueIterator;
+
+VenueMap g_AllVenues;
+  /* A collection of all the venues. */
+
+
+/******************************************************************************
+ * Class which contains information about a single event.  An event is uniquely
+ * identified by a time and a venue (which will be our key).  The rest of the
+ * event data specifies the show and whether the particular event is selected
+ * by the user.
+ */
+
+typedef struct EventKeyStruct
+{
+  EventKeyStruct ()
+  {
+    m_EventTime = 0;
+  };
+
+  time_t m_EventTime;
+    /* In Unix seconds since the start of time. */
+
+  VenueIterator m_Venue;
+    /* Points to the Venue information, we just use the first part of the Venue
+    pair (the name) for our composite key. */
+
+  bool operator() ( /* Our less-than comparison function for sorting. */
+    const EventKeyStruct ItemA,
+    const EventKeyStruct ItemB) const
+  {
+    double DeltaTime = difftime (ItemA.m_EventTime, ItemB.m_EventTime);
+    if (DeltaTime < 0.0)
+      return true;
+
+    if (DeltaTime > 0.0)
+      return false;
+
+    const char *NameA = ItemA.m_Venue->first.c_str ();
+    const char *NameB = ItemB.m_Venue->first.c_str ();
+    return (strcmp (NameA, NameB) < 0);
+  };
+
+} EventKeyRecord, *EventKeyPointer;
+
+
+typedef struct EventStruct
+{
+  bool m_IsSelectedByUser;
+    /* TRUE if the user has selected this event, meaning they want to attend
+    the show at this specific place and time. */
+
+  ShowIterator m_ShowIter;
+    /* Identifies the show that is being performed at this place and time. */
+  
+} EventRecord, *EventPointer;
+
+typedef std::map<EventKeyStruct, EventRecord, EventKeyStruct> EventMap;
+typedef EventMap::iterator EventIterator;
+
+EventMap g_AllEvents;
+  /* A collection of all the events. */
+
+
+/******************************************************************************
+ * Input form data storage.  This is the form data submitted by clicking on the
+ * Update Schedule button on the web page.
+ */
 
 char *g_InputFormText;
-  /* The state of the whole thing, as received from the web browser textarea
-  box.  Will be decoded and line ends fixed up before being used to set the
-  list of shows and their selection times.  NUL terminated string which gets
-  modified to be several NUL terminated substrings. */
-
+  /* The state of the form on the web page, as received from the web browser
+  POST command's encoded data.  Will be overwritten with the equivalent decoded
+  text and that's then referenced by the collection of form name and value
+  pairs. */
 
 struct CompareCharStruct
 {
@@ -104,7 +183,10 @@ struct CompareCharStruct
 typedef std::map<char *, const char *, CompareCharStruct> FormNameToValuesMap;
 
 FormNameToValuesMap g_FormNameValuePairs;
-  /* The form input data decoded and broken up into name and value pairs. Usually one pair for each of the form elements, except checkboxes which are simply missing if not selected. */
+  /* The form input data decoded and broken up into name and value pairs.
+  Usually one pair for each of the form elements, except checkboxes which are
+  simply missing if not selected.  The actual strings are stored in
+  g_InputFormText. */
 
 
 /******************************************************************************
@@ -135,7 +217,7 @@ void FormEncodedToPlainText (char *pBuffer)
       else if (Hex1 >= 'a' && Hex1 <= 'f')
         Value1 = Hex1 - 'a' + 10;
 
-      if (Value1 != -1) // Valid hex digit previously, also not NUL end of string.
+      if (Value1 != -1) // Valid hex digit previously, also not a NUL char.
       {
         char Hex2 = tolower (pSource[1]);
         int Value2 = -1;
@@ -149,7 +231,7 @@ void FormEncodedToPlainText (char *pBuffer)
         else  // Second digit isn't hex, don't have a valid value.
           Value1 = -1;
       }
-      if (Value1 == -1)
+      if (Value1 == -1) // Not a %xy hex sequence, or too close to end NUL.
         *pDest++ = Letter;
       else // Sucessfully decoded a hex value.
       {
@@ -191,7 +273,12 @@ void FormEncodedToPlainText (char *pBuffer)
 
 
 /******************************************************************************
- * Break the form input data into pairs of name and associated value.  Also decodes the text.  Overwrites the global g_InputFormText with the decoded text, also adding NUL bytes after each name and value.  The format is a name followed by an equals sign, followed by the value, followed by an ampersand and then the next name and value etc.  Last one has end of string at the end instead of an ampersand.
+ * Break the form input data into pairs of name and associated value.  Also
+ * decodes the text.  Overwrites the global g_InputFormText with the decoded
+ * text, also adding NUL bytes after each name and value.  The format is a name
+ * followed by an equals sign, followed by the value, followed by an ampersand
+ * and then the next name and value etc.  Last one has an end of string NUL at
+ * the end instead of an ampersand.
  */
 
 void BuildFormNameAndValuePairsFromFormInput ()
@@ -233,6 +320,8 @@ void BuildFormNameAndValuePairsFromFormInput ()
 
 int main (int argc, char**)
 {
+  FormNameToValuesMap::iterator iFormPair;
+
   const int MAX_CONTENT_LENGTH = 50000000;
     /* Should be big enough for the largest Fringe show, but not so large that
     it will cause an out of memory problem (max 800MB user space in BeOS, minus
@@ -266,14 +355,23 @@ int main (int argc, char**)
   BuildFormNameAndValuePairsFromFormInput ();
 
   printf ("Converted form input:\n");
-  for (FormNameToValuesMap::iterator it = g_FormNameValuePairs.begin();
-  it != g_FormNameValuePairs.end(); ++it)
+  for (iFormPair = g_FormNameValuePairs.begin();
+  iFormPair != g_FormNameValuePairs.end(); ++iFormPair)
   {
-    printf ("Name \"%s\", value: %s\n", it->first, it->second);
+    printf ("Name \"%s\", value: %s\n", iFormPair->first, iFormPair->second);
+  }
+
+  // Load up the saved state information first, we'll apply the user's changes
+  // (checkbox markings) afterwards.  If there isn't any saved data, just leave
+  // it empty.
+
+  iFormPair = g_FormNameValuePairs.find ((char *) "SavedState");
+  if (iFormPair != g_FormNameValuePairs.end ())
+  {
+// bleeble    LoadStateInformation (iFormPair->second);
   }
 
   g_FormNameValuePairs.clear ();
   delete [] g_InputFormText;
   return 0;
 }
-
