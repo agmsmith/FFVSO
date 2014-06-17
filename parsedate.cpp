@@ -544,7 +544,7 @@ DateMask::IsComplete()
 		return false;
 
 	// minimal set of flags to have a complete set
-	return !(~fMask & (Flag(TYPE_DAY) | Flag(TYPE_MONTH)));
+	return !(~fMask & (Flag(TYPE_DAY) | Flag(TYPE_MONTH) | Flag(TYPE_YEAR)));
 }
 
 
