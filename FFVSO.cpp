@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.9 2014/06/18 03:11:40 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.10 2014/06/18 19:51:56 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.10  2014/06/18 19:51:56  agmsmith
+ * Now loads in events.
+ *
  * Revision 1.9  2014/06/18 03:11:40  agmsmith
  * Now collects the list of shows.
  *
@@ -189,6 +192,22 @@ EventMap g_AllEvents;
 
 
 /******************************************************************************
+ * Class which contains settings data.  It's just a map of keyword strings and
+ * value strings.  Used for storing HTML fragments like the sequence to
+ * highlight a favourite show.  Or any other string thing.  The user can edit
+ * them too.
+ */
+
+typedef std::map<std::string, std::string> SettingMap;
+typedef SettingMap::iterator SettingIterator;
+
+SettingMap g_AllSettings;
+  /* The collection of all settings.  Initialised to some standard ones, which
+  get overwritten by the settings from the user's web page, see keyword
+  "Setting" in the SavedState block of text. */
+
+
+/******************************************************************************
  * Input form data storage.  This is the form data submitted by clicking on the
  * Update Schedule button on the web page.
  */
@@ -344,6 +363,22 @@ void BuildFormNameAndValuePairsFromFormInput ()
 
 
 /******************************************************************************
+ * Set up the global list of settings, for things like the HTML strings that
+ * highlight selected items.  They will be overwritten by user provided
+ * settings.
+ */
+
+void InitialiseDefaultSettings ()
+{
+  g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>$Id: $";
+  g_AllSettings["HTMLFavouriteOn"] = "<I>";
+  g_AllSettings["HTMLFavouriteOff"] = "</I>";
+  g_AllSettings["HTMLSelectOn"] = "<B>";
+  g_AllSettings["HTMLSelectOff"] = "</B>";
+}
+
+
+/******************************************************************************
  * Parse the saved state string, which is stored in a huge TextArea in the web
  * form.  It can be initialised by copying the text from the Fringe's schedule
  * web page (http://ottawafringe.com/schedule/), which has lines listing each
@@ -468,7 +503,10 @@ void LoadStateInformation (const char *pBuffer)
 
         RunningDate = NewDate;
 
-        if (nFields >= 3) // Have at least show and venue after the date.
+        // Load an event, if we have enough fields to define one.  Need show
+        // and venue, and optionally the selected flag.
+
+        if (nFields >= 3)
         {
           ShowRecord NewShow;
           ShowMap::value_type NewShowPair (aFields[1], NewShow);
@@ -502,12 +540,27 @@ void LoadStateInformation (const char *pBuffer)
               NewEventKey.m_Venue->first.c_str(),
               asctime (&BrokenUpDate));
           }
-          else // Successfully added an event.
+          else // Successfully added a new event.
           {
             InsertShowResult.first->second.m_EventCount++;
             InsertVenueResult.first->second.m_EventCount++;
           }
         }
+      }
+      else if (aFields[0] == "Favourite" && nFields >= 2)
+      {
+        // Favourite keyword is followed by a field identifying a show.
+
+        ShowIterator iShow = g_AllShows.find (aFields[1]);
+        if (iShow != g_AllShows.end ())
+          iShow->second.m_IsFavourite = true;
+        else
+          printf ("<P>Unknown show name \"%s\" after Favourite keyword, "
+            "ignoring it.\n", aFields[1].c_str ());
+      }
+      else if (aFields[0] == "Setting" && nFields >= 3)
+      {
+        g_AllSettings[aFields[1]] = aFields[2];
       }
     }
 
@@ -567,6 +620,10 @@ int main (int argc, char**)
   }
 #endif
 
+  // Set up the global list of settings, for things like the HTML strings that highlight selected items.  They will be overwritten by user provided settings.
+
+  InitialiseDefaultSettings ();
+
   // Load up the saved state information first, we'll apply the user's changes
   // (checkbox markings) afterwards.  If there isn't any saved data, just leave
   // it empty.
@@ -619,9 +676,20 @@ int main (int argc, char**)
   }
 #endif
 
+#if 1
+  printf ("List of %lu settings:\n", g_AllSettings.size ());
+  SettingIterator iSetting;
+  for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
+  {
+    printf ("Setting \"%s\" is \"%s\".\n",
+      iSetting->first.c_str(), iSetting->second.c_str());
+  }
+#endif
+
   g_AllEvents.clear();
   g_AllShows.clear();
   g_AllVenues.clear();
+  g_AllSettings.clear();
   g_FormNameValuePairs.clear ();
   delete [] g_InputFormText;
   return 0;
