@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.8 2014/06/18 01:39:39 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.9 2014/06/18 03:11:40 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.9  2014/06/18 03:11:40  agmsmith
+ * Now collects the list of shows.
+ *
  * Revision 1.8  2014/06/18 01:39:39  agmsmith
  * Mostly reformatting comment text, and a bug fix for multiple fields.
  *
@@ -108,8 +111,14 @@ ShowMap g_AllShows;
 
 typedef struct VenueStruct
 {
+  int m_EventCount;
+    /* Number of performances at this venue. */
+
   std::string m_VenueURL;
     /* A link to a web page about the venue. */
+
+  VenueStruct () : m_EventCount(0)
+  {};
 
 } VenueRecord, *VenuePointer;
 
@@ -422,18 +431,32 @@ void LoadStateInformation (const char *pBuffer)
         pFieldStart = pSource;
       }
     }
+    int nFields = iField; // Keep the count of the number of fields for later.
 
     // Finished reading a line of input, now process the fields.
 
-    if (iField > 0)
+    if (nFields > 0)
     {
-      printf ("%d fields.  ", iField);
+#if 1
+      printf ("%d fields: ", nFields);
+      for (iField = 0; iField < nFields; iField++)
+      {
+        if (iField >= MAX_FIELDS)
+        {
+          printf ("...");
+          break;
+        }
+        printf ("%s%s", aFields[iField].c_str(),
+          (iField < nFields - 1) ? ", " : "");
+      }
+      printf ("\n");
+#endif
 
       time_t NewDate = parsedate (aFields[0].c_str(), RunningDate);
       if (NewDate > 0) // Got a valid date.
       {
-#if 1
         localtime_r (&NewDate, &BrokenUpDate);
+#if 0
         printf ("Converted date \"%s\" to %s", aFields[0].c_str(),
           asctime (&BrokenUpDate));
 #endif
@@ -445,13 +468,45 @@ void LoadStateInformation (const char *pBuffer)
 
         RunningDate = NewDate;
 
-        if (iField >= 3) // Have at least show and venue after the date.
+        if (nFields >= 3) // Have at least show and venue after the date.
         {
           ShowRecord NewShow;
-          ShowMap::value_type NewPair (aFields[1], NewShow);
-          std::pair<ShowIterator, bool> InsertResult;
-          InsertResult = g_AllShows.insert (NewPair);
-          InsertResult.first->second.m_EventCount++;
+          ShowMap::value_type NewShowPair (aFields[1], NewShow);
+          std::pair<ShowIterator, bool> InsertShowResult (
+            g_AllShows.insert (NewShowPair));
+
+          VenueRecord NewVenue;
+          VenueMap::value_type NewVenuePair (aFields[2], NewVenue);
+          std::pair<VenueIterator, bool> InsertVenueResult (
+            g_AllVenues.insert (NewVenuePair));
+
+          EventKeyRecord NewEventKey;
+          NewEventKey.m_EventTime = NewDate;
+          NewEventKey.m_Venue = InsertVenueResult.first;
+
+          EventRecord NewEvent;
+          NewEvent.m_ShowIter = InsertShowResult.first;
+          if (nFields >= 4 && aFields[3] == "Selected")
+            NewEvent.m_IsSelectedByUser = true;
+
+          EventMap::value_type NewEventPair (NewEventKey, NewEvent);
+          std::pair<EventIterator, bool> InsertEventResult (
+            g_AllEvents.insert (NewEventPair));
+          if (!InsertEventResult.second)
+          {
+            printf ("<P>Slight problem: ignoring redundant occurance of an "
+              "identical event (same place and time).  It's show \"%s\" "
+              "(prior show is \"%s\"), venue \"%s\", at time %s",
+              NewEvent.m_ShowIter->first.c_str(),
+              InsertEventResult.first->second.m_ShowIter->first.c_str(),
+              NewEventKey.m_Venue->first.c_str(),
+              asctime (&BrokenUpDate));
+          }
+          else // Successfully added an event.
+          {
+            InsertShowResult.first->second.m_EventCount++;
+            InsertVenueResult.first->second.m_EventCount++;
+          }
         }
       }
     }
@@ -527,10 +582,40 @@ int main (int argc, char**)
   ShowIterator iShow;
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
   {
-    printf ("Name \"%s\", Favourite %d, EventCount %d, ScheduledCount %d, URL \"%s\".\n",
+    printf ("Show \"%s\", Favourite %d, EventCount %d, ScheduledCount %d, URL \"%s\".\n",
       iShow->first.c_str(), iShow->second.m_IsFavourite,
       iShow->second.m_EventCount, iShow->second.m_ScheduledCount,
       iShow->second.m_ShowURL.c_str());
+  }
+#endif
+
+#if 1
+  printf ("List of %lu venues:\n", g_AllVenues.size ());
+  VenueIterator iVenue;
+  for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
+  {
+    printf ("Venue \"%s\", EventCount %d, URL \"%s\".\n",
+      iVenue->first.c_str(), iVenue->second.m_EventCount,
+      iVenue->second.m_VenueURL.c_str());
+  }
+#endif
+
+#if 1
+  printf ("List of %lu events:\n", g_AllEvents.size ());
+  EventIterator iEvent;
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    struct tm BrokenUpDate;
+    char TimeString[32];
+
+    localtime_r (&iEvent->first.m_EventTime, &BrokenUpDate);
+    strcpy (TimeString, asctime (&BrokenUpDate));
+    TimeString[strlen(TimeString)-1] = 0; // Trash trailing linefeed.
+
+    printf ("Event %s/%s, \"%s\"%s\n",
+      TimeString, iEvent->first.m_Venue->first.c_str(),
+      iEvent->second.m_ShowIter->first.c_str(),
+      (iEvent->second.m_IsSelectedByUser) ? ", Selected" : "");
   }
 #endif
 
