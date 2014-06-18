@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.6 2014/06/17 18:36:09 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.7 2014/06/17 23:16:50 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.7  2014/06/17 23:16:50  agmsmith
+ * Starting to process the state info - now parses dates.
+ *
  * Revision 1.6  2014/06/17 18:36:09  agmsmith
  * Adding map collections to store shows, venues and events.
  *
@@ -156,7 +159,7 @@ typedef struct EventStruct
 
   ShowIterator m_ShowIter;
     /* Identifies the show that is being performed at this place and time. */
-  
+
 } EventRecord, *EventPointer;
 
 typedef std::map<EventKeyStruct, EventRecord, EventKeyStruct> EventMap;
@@ -322,20 +325,36 @@ void BuildFormNameAndValuePairsFromFormInput ()
 
 
 /******************************************************************************
- * Parse the saved state string, which is stored in a huge TextArea in the web form.  It can be initialised by copying the text from the Fringe's schedule web page (http://ottawafringe.com/schedule/), which has lines listing each time/show/venue separted by days of the week subtitles.  Conveniently it's a table so when you copy the text out, the fields are separated by tab charaters.
+ * Parse the saved state string, which is stored in a huge TextArea in the web
+ * form.  It can be initialised by copying the text from the Fringe's schedule
+ * web page (http://ottawafringe.com/schedule/), which has lines listing each
+ * time/show/venue separted by days of the week subtitles.  Conveniently it's a
+ * table so when you copy the text out, the fields are separated by tab
+ * charaters.
  *
- * We look for a time or keyword first.  If it's just a date (no more tab separated fields after it) then it becomes the current default date.  If it's a keyword, then the number of fields after it depend on the keyword.  If it's a time with three or more fields in total, then it's an event, where the first field is the time (combine with the default date to get an absolute time), the second field is the show name and the third is the venue name, and the fourth is the selected flag ("Selected" to pick the event, anything else or missing to not pick it).
+ * We look for a time or keyword first.  If it's just a date (no more tab
+ * separated fields after it) then it becomes the current default date.  If
+ * it's a keyword, then the number of fields after it depend on the keyword.
+ * If it's a time with three or more fields in total, then it's an event, where
+ * the first field is the time (combine with the default date to get an
+ * absolute time), the second field is the show name and the third is the venue
+ * name, and the fourth is the selected flag ("Selected" to pick the event,
+ * anything else or missing to not pick it).
  *
  * The keywords are used for storing extra information.  They are:
- *   "Favourite" with the second field being the show name.  That show is then marked as being one of the higher priority ones for the user to see.
- *   "ShowURL" has a second field that names a show and a third that specifies a web link to show information about the show.
- *   "VenueURL" second field names a venue, third has the URL for information about it.
+ *   "Favourite" with the second field being the show name.  That show is then
+ *      marked as being one of the higher priority ones for the user to see.
+ *   "ShowURL" has a second field that names a show and a third that specifies
+ *     a web link to show information about the show.
+ *   "VenueURL" second field names a venue, third has the URL for information
+ *     about it.
  */
 
 void LoadStateInformation (const char *pBuffer)
 {
 
-  // Set the running date to be the start of the current year, in case they specify events without mentioning the year.
+  // Set the running date to be the start of the current year, in case they
+  // specify events without mentioning the year.
 
   struct tm BrokenUpDate;
   time_t RunningDate;
@@ -364,7 +383,6 @@ void LoadStateInformation (const char *pBuffer)
     iField = 0;
 
     // Start hunting for fields.
-
 
     char Letter = *pSource;
     while (Letter != 0 && Letter != '\n')
@@ -413,7 +431,7 @@ void LoadStateInformation (const char *pBuffer)
     }
 
     if (Letter == '\n') // Leave NUL alone so outer loop exits.
-      pSource++;
+      Letter = *++pSource;
   }
 }
 
@@ -432,10 +450,10 @@ int main (int argc, char**)
     overhead of web server). */
 
   /* Read the data from the web browser, via standard input.  An environment
-variable
-  specifies the maximum length to be read, if known.  Use it so that multiple
-  transfers per HTTP session work.  If not present, read until end of file.
-  Stuff it all into a big memory buffer which will be worked over later. */
+  variable specifies the maximum length to be read, if known.  Use it so that
+  multiple transfers per HTTP session work.  If not present, read until end of
+  file.  Stuff it all into a big memory buffer which will be worked over later.
+  */
 
   int ContentLength = MAX_CONTENT_LENGTH; // Default if none specified.
   const char *pContentLength;
@@ -478,6 +496,9 @@ variable
     LoadStateInformation (iFormPair->second);
   }
 
+  g_AllEvents.clear();
+  g_AllShows.clear();
+  g_AllVenues.clear();
   g_FormNameValuePairs.clear ();
   delete [] g_InputFormText;
   return 0;
