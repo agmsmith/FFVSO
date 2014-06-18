@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.10 2014/06/18 19:51:56 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.11 2014/06/18 20:22:23 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.11  2014/06/18 20:22:23  agmsmith
+ * Adding settings.
+ *
  * Revision 1.10  2014/06/18 19:51:56  agmsmith
  * Now loads in events.
  *
@@ -370,11 +373,18 @@ void BuildFormNameAndValuePairsFromFormInput ()
 
 void InitialiseDefaultSettings ()
 {
-  g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>$Id: $";
+  g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>Subtitle goes here.";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.11 2014/06/18 20:22:23 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLFavouriteOn"] = "<I>";
   g_AllSettings["HTMLFavouriteOff"] = "</I>";
   g_AllSettings["HTMLSelectOn"] = "<B>";
   g_AllSettings["HTMLSelectOff"] = "</B>";
+
+  time_t TimeNow;
+  struct tm *BrokenUpTime;
+  time(&TimeNow);
+  BrokenUpTime = localtime (&TimeNow);
+  g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
 }
 
 
@@ -571,6 +581,30 @@ void LoadStateInformation (const char *pBuffer)
 
 
 /******************************************************************************
+ * Write the output web page, which dumps the current state of everything into
+ * various form fields so that the user can change it.
+ */
+
+void WriteHTMLHeader ()
+{
+  printf (
+"Content-Type: text/plain\r\n\r\n" // Magic CGI header.
+"<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
+"<HTML>\n"
+"<HEAD>\n"
+"<TITLE>Fringe Theatre Festival Vistor Schedule Optimiser</TITLE>\n"
+"<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
+"<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
+"<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
+"theatre performances so that you don't miss the shows you want, and to pack "
+"in as many shows as possible while avoiding duplicates.\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: $\">\n"
+"</HEAD>\n"
+"<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
+}
+
+
+/******************************************************************************
  * Finally, the main program which drives it all.
  */
 
@@ -604,7 +638,8 @@ int main (int argc, char**)
   int AmountRead = fread (g_InputFormText, 1, ContentLength, stdin);
   g_InputFormText[AmountRead ] = 0;
 
-  printf ("Content-Type: text/plain\r\n\r\n"); // Magic CGI header.
+  WriteHTMLHeader ();
+
   printf ("Content length is %d.\n", ContentLength);
   printf ("AmountRead is %d.\n", AmountRead);
 //  printf ("Original text: %s\n", g_InputFormText);
@@ -685,6 +720,7 @@ int main (int argc, char**)
       iSetting->first.c_str(), iSetting->second.c_str());
   }
 #endif
+
 
   g_AllEvents.clear();
   g_AllShows.clear();
