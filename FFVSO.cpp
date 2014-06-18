@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.7 2014/06/17 23:16:50 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.8 2014/06/18 01:39:39 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -7,15 +7,18 @@
  * on the same web page.  Statistics showing conflicts in time, missing
  * favourite shows and other such info guide the user in selecting shows.
  *
- * Note that this uses the AGMS coding style.  That means no tabs, indents are
- * two spaces, m_ is the prefix for member variables, g_ is the prefix for
- * global names, C style comments, constants are in all capital letters and
- * most other things are mixed case, it's word wrapped to fit in 79 characters
- * per line to make proofreading on paper easier, and functions are listed in
- * reverse dependency order so that forward declarations (function prototypes
- * with no code) aren't needed.
+ * Note that this uses the AGMS vacation coding style.  That means no tabs,
+ * indents are two spaces, m_ is the prefix for member variables, g_ is the
+ * prefix for global names, C style comments, constants are in all capital
+ * letters and most other things are mixed case, it's word wrapped to fit in 79
+ * characters per line to make proofreading on paper easier, and functions are
+ * listed in reverse dependency order so that forward declarations (function
+ * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.8  2014/06/18 01:39:39  agmsmith
+ * Mostly reformatting comment text, and a bug fix for multiple fields.
+ *
  * Revision 1.7  2014/06/17 23:16:50  agmsmith
  * Starting to process the state info - now parses dates.
  *
@@ -69,6 +72,9 @@
 
 typedef struct ShowStruct
 {
+  int m_EventCount;
+    /* Number of performances of this show. */
+
   bool m_IsFavourite;
     /* TRUE if the show is one of the user's favourite ones.  They get
     highlighted differently and there is a count of favourite shows not yet
@@ -81,6 +87,9 @@ typedef struct ShowStruct
 
   std::string m_ShowURL;
     /* A link to a web page about the show. */
+
+  ShowStruct () : m_EventCount(0), m_IsFavourite(false), m_ScheduledCount(0)
+  {};
 
 } ShowRecord, *ShowPointer;
 
@@ -120,11 +129,6 @@ VenueMap g_AllVenues;
 
 typedef struct EventKeyStruct
 {
-  EventKeyStruct ()
-  {
-    m_EventTime = 0;
-  };
-
   time_t m_EventTime;
     /* In Unix seconds since the start of time. */
 
@@ -148,6 +152,9 @@ typedef struct EventKeyStruct
     return (strcmp (NameA, NameB) < 0);
   };
 
+  EventKeyStruct () : m_EventTime(0)
+  {};
+
 } EventKeyRecord, *EventKeyPointer;
 
 
@@ -159,6 +166,9 @@ typedef struct EventStruct
 
   ShowIterator m_ShowIter;
     /* Identifies the show that is being performed at this place and time. */
+
+  EventStruct () : m_IsSelectedByUser(false)
+  {};
 
 } EventRecord, *EventPointer;
 
@@ -417,16 +427,32 @@ void LoadStateInformation (const char *pBuffer)
 
     if (iField > 0)
     {
+      printf ("%d fields.  ", iField);
+
       time_t NewDate = parsedate (aFields[0].c_str(), RunningDate);
-      localtime_r (&NewDate, &BrokenUpDate);
-      if (NewDate <= 0)
-        printf ("Unknown date: \"%s\" as %s", aFields[0].c_str(),
-          asctime (&BrokenUpDate));
-      else
+      if (NewDate > 0) // Got a valid date.
       {
+#if 1
+        localtime_r (&NewDate, &BrokenUpDate);
         printf ("Converted date \"%s\" to %s", aFields[0].c_str(),
           asctime (&BrokenUpDate));
+#endif
+
+        // Update the running date, so subsequent times are based off this one.
+        // Useful if the date is a subtitle like "Thursday, June 19" and
+        // subsequent entries just list the hour and minute, in increasing
+        // order.
+
         RunningDate = NewDate;
+
+        if (iField >= 3) // Have at least show and venue after the date.
+        {
+          ShowRecord NewShow;
+          ShowMap::value_type NewPair (aFields[1], NewShow);
+          std::pair<ShowIterator, bool> InsertResult;
+          InsertResult = g_AllShows.insert (NewPair);
+          InsertResult.first->second.m_EventCount++;
+        }
       }
     }
 
@@ -495,6 +521,18 @@ int main (int argc, char**)
   {
     LoadStateInformation (iFormPair->second);
   }
+
+#if 1
+  printf ("List of %lu shows:\n", g_AllShows.size ());
+  ShowIterator iShow;
+  for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
+  {
+    printf ("Name \"%s\", Favourite %d, EventCount %d, ScheduledCount %d, URL \"%s\".\n",
+      iShow->first.c_str(), iShow->second.m_IsFavourite,
+      iShow->second.m_EventCount, iShow->second.m_ScheduledCount,
+      iShow->second.m_ShowURL.c_str());
+  }
+#endif
 
   g_AllEvents.clear();
   g_AllShows.clear();
