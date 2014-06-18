@@ -184,7 +184,7 @@ struct known_identifier {
 static const known_identifier kIdentifiers[] = {
 	{"today",		NULL,	TYPE_UNIT, FLAG_RELATIVE | FLAG_NOT_MODIFIABLE,
 		UNIT_DAY, 0},
-	{"tomorrow",	NULL,	TYPE_UNIT, FLAG_RELATIVE | FLAG_NOT_MODIFIABLE,
+	{"tomorrow",	"midnight",	TYPE_UNIT, FLAG_RELATIVE | FLAG_NOT_MODIFIABLE,
 		UNIT_DAY, 1},
 	{"yesterday",	NULL,	TYPE_UNIT, FLAG_RELATIVE | FLAG_NOT_MODIFIABLE,
 		UNIT_DAY, -1},
