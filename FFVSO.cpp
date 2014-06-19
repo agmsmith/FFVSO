@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.12 2014/06/18 20:45:16 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.13 2014/06/19 04:25:54 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.13  2014/06/19 04:25:54  agmsmith
+ * Added load/save of the URLs for shows and venues, added the big
+ * table listing all events with checkboxes.
+ *
  * Revision 1.12  2014/06/18 20:45:16  agmsmith
  * Adding HTML headers.
  *
@@ -393,11 +397,13 @@ void ResetLastUpdateTimeSetting ()
 void InitialiseDefaultSettings ()
 {
   g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>Subtitle goes here.";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.12 2014/06/18 20:45:16 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.13 2014/06/19 04:25:54 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLFavouriteOn"] = "<I>";
   g_AllSettings["HTMLFavouriteOff"] = "</I>";
   g_AllSettings["HTMLSelectOn"] = "<B>";
   g_AllSettings["HTMLSelectOff"] = "</B>";
+  g_AllSettings["DefaultShowDurationMinutes"] = "60";
+  g_AllSettings["NewDayGapMinutes"] = "360";
   ResetLastUpdateTimeSetting ();
 }
 
@@ -605,6 +611,54 @@ void LoadStateInformation (const char *pBuffer)
 
 
 /******************************************************************************
+ * Prints the given string to standard output, converting special characters
+ * into their HTML encoded equivalents.  Ampersand becomes "&amp;", tab becomes
+ * "&#9;", less than and greater than are also encoded.  This should help with
+ * web browsers that can't have tabs in text areas.
+ */
+
+void EncodeAndPrintText (const char *pBuffer)
+{
+  int OutputLength = strlen (pBuffer) * 5 + 1; // &amp; is the worst case one.
+  char *pOutputBuffer = new char [OutputLength];
+
+  const char *pSource = pBuffer;
+  char *pDest = pOutputBuffer;
+  char Letter;
+
+  while ((Letter = *pSource++) != 0)
+  {
+    if ('\t' == Letter)
+    {
+      strcpy (pDest, "&#9;");
+      pDest += 4;
+    }
+    else if ('&' == Letter)
+    {
+      strcpy (pDest, "&amp;");
+      pDest += 5;
+    }
+    else if ('<' == Letter)
+    {
+      strcpy (pDest, "&lt;");
+      pDest += 4;
+    }
+    else if ('>' == Letter)
+    {
+      strcpy (pDest, "&gt;");
+      pDest += 4;
+    }
+    else
+      *pDest++ = Letter;
+  }
+  *pDest = 0;
+
+  printf ("%s", pOutputBuffer);  
+  delete [] pOutputBuffer;
+}
+
+
+/******************************************************************************
  * Write the output web page, which dumps the current state of everything into
  * various form fields so that the user can change it.
  */
@@ -616,13 +670,13 @@ void WriteHTMLHeader ()
 "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
 "<HTML>\n"
 "<HEAD>\n"
-"<TITLE>Fringe Theatre Festival Visitor Schedule Optimiser</TITLE>\n"
+"<TITLE>Fringe Theatre Festival Visitor Schedule Optimiser by AGMS</TITLE>\n"
 "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
 "<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.12 2014/06/18 20:45:16 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.13 2014/06/19 04:25:54 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -632,7 +686,9 @@ void WriteHTMLForm ()
 {
   struct tm BrokenUpDate;
   EventIterator iEvent;
+  char OutputBuffer[4096];
   char TimeString[32];
+  int NewDayGapMinutes = atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
 
   printf ("%s\n", g_AllSettings["Title"].c_str ());
   printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
@@ -642,19 +698,19 @@ void WriteHTMLForm ()
   // user select it.  Done as a table with four columns: event time, show,
   // venue, checkbox.
 
-  printf ("<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
+  printf ("<P><TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
 
   time_t PreviousTime = 0;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
-    // If more than 8 hours since the previous event, print out a new day
-    // heading.  The Ottawa Fringe last show is usually at midnight, and the
-    // first one after that is at noon.
+    // If more than 6 hours (or whatever NewDayGapMinutes is set to) since the
+    // previous event, print out a new day heading.  The Ottawa Fringe last
+    // show is usually at midnight, and the first one after that is at noon.
 
     time_t EventTime = iEvent->first.m_EventTime;
     localtime_r (&EventTime, &BrokenUpDate);
     double DeltaTime = difftime (EventTime, PreviousTime);
-    if (fabs (DeltaTime) > 60 * 60 * 8)
+    if (fabs (DeltaTime) > NewDayGapMinutes * 60)
     {
       strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
         &BrokenUpDate);
@@ -709,33 +765,40 @@ void WriteHTMLForm ()
 
   printf ("<TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
 
-  // First dump the starting date, so that later dates pick up the daylight
-  // savings time of that time of year, otherwise the first date read might be
-  // off by an hour.  Also future proofs the data by explicitly mentioning the
-  // year.
+  // Dump the settings state.  Do it first so default settings get used when
+  // reading the events.
 
-  iEvent = g_AllEvents.begin();
-  if (iEvent != g_AllEvents.end())
+  SettingIterator iSetting;
+  for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
   {
-    localtime_r (&iEvent->first.m_EventTime, &BrokenUpDate);
-    strftime (TimeString, sizeof (TimeString), "%B %d, %Y", &BrokenUpDate);
-    printf ("%s\n", TimeString);
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "Setting\t%s\t%s\n",
+      iSetting->first.c_str(), iSetting->second.c_str());
+    EncodeAndPrintText (OutputBuffer);
   }
 
   // Dump the event states.
 
+  int PreviousDayOfMonth = 0;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
-    struct tm BrokenUpDate;
+    time_t EventTime = iEvent->first.m_EventTime;
+    localtime_r (&EventTime, &BrokenUpDate);
 
-    localtime_r (&iEvent->first.m_EventTime, &BrokenUpDate);
-    strcpy (TimeString, asctime (&BrokenUpDate));
-    TimeString[strlen(TimeString)-1] = 0; // Trash trailing linefeed.
+    if (PreviousDayOfMonth != BrokenUpDate.tm_mday)
+    {
+      strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
+        &BrokenUpDate);
+      printf ("%s\n", TimeString);
+      PreviousDayOfMonth = BrokenUpDate.tm_mday;
+    }
 
-    printf ("%s\t%s\t%s%s\n", TimeString,
+    strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "%s\t%s\t%s%s\n",
+      TimeString,
       iEvent->second.m_ShowIter->first.c_str(),
       iEvent->first.m_Venue->first.c_str(),
       (iEvent->second.m_IsSelectedByUser) ? "\tSelected" : "");
+    EncodeAndPrintText (OutputBuffer);
   }
 
   // Dump the show states, just for the favourite flag and the URL.
@@ -744,10 +807,19 @@ void WriteHTMLForm ()
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
   {
     if (iShow->second.m_IsFavourite)
-      printf ("Favourite\t%s\n", iShow->first.c_str());
+    {
+      snprintf (OutputBuffer, sizeof (OutputBuffer),
+        "Favourite\t%s\n", iShow->first.c_str());
+      EncodeAndPrintText (OutputBuffer);
+    }
+
     if (!iShow->second.m_ShowURL.empty ())
-      printf ("ShowURL\t%s\t%s\n", iShow->first.c_str(),
+    {
+      snprintf (OutputBuffer, sizeof (OutputBuffer),
+        "ShowURL\t%s\t%s\n", iShow->first.c_str(),
         iShow->second.m_ShowURL.c_str());
+      EncodeAndPrintText (OutputBuffer);
+    }
   }
 
   // Dump the venue states, just the URL.
@@ -756,17 +828,11 @@ void WriteHTMLForm ()
   for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
   {
     if (!iVenue->second.m_VenueURL.empty ())
-      printf ("VenueURL\t%s\t%s\n", iVenue->first.c_str(),
-        iVenue->second.m_VenueURL.c_str());
-  }
-
-  // Dump the settings state.
-
-  SettingIterator iSetting;
-  for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
-  {
-    printf ("Setting\t%s\t%s\n",
-      iSetting->first.c_str(), iSetting->second.c_str());
+    {
+      snprintf (OutputBuffer, sizeof (OutputBuffer), "VenueURL\t%s\t%s\n",
+        iVenue->first.c_str(), iVenue->second.m_VenueURL.c_str());
+      EncodeAndPrintText (OutputBuffer);
+    }
   }
 
   printf ("</TEXTAREA>\n");
