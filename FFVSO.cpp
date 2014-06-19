@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.11 2014/06/18 20:22:23 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.12 2014/06/18 20:45:16 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.12  2014/06/18 20:45:16  agmsmith
+ * Adding HTML headers.
+ *
  * Revision 1.11  2014/06/18 20:22:23  agmsmith
  * Adding settings.
  *
@@ -60,6 +63,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <math.h>
 
 /* parsedate library taken from Haiku OS source for Unix, native in BeOS. */
 
@@ -246,6 +250,7 @@ FormNameToValuesMap g_FormNameValuePairs;
  * character, and "+" with a space.  Then run through the text again and
  * replace CRLF or plain CR with just LF, our standard end of line character.
  */
+
 void FormEncodedToPlainText (char *pBuffer)
 {
   char *pDest;
@@ -366,6 +371,20 @@ void BuildFormNameAndValuePairsFromFormInput ()
 
 
 /******************************************************************************
+ * Just set the Setting for the last update time to the current time.
+ */
+
+void ResetLastUpdateTimeSetting ()
+{
+  time_t TimeNow;
+  struct tm *BrokenUpTime;
+  time(&TimeNow);
+  BrokenUpTime = localtime (&TimeNow);
+  g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
+}
+
+
+/******************************************************************************
  * Set up the global list of settings, for things like the HTML strings that
  * highlight selected items.  They will be overwritten by user provided
  * settings.
@@ -374,17 +393,12 @@ void BuildFormNameAndValuePairsFromFormInput ()
 void InitialiseDefaultSettings ()
 {
   g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>Subtitle goes here.";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.11 2014/06/18 20:22:23 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.12 2014/06/18 20:45:16 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLFavouriteOn"] = "<I>";
   g_AllSettings["HTMLFavouriteOff"] = "</I>";
   g_AllSettings["HTMLSelectOn"] = "<B>";
   g_AllSettings["HTMLSelectOff"] = "</B>";
-
-  time_t TimeNow;
-  struct tm *BrokenUpTime;
-  time(&TimeNow);
-  BrokenUpTime = localtime (&TimeNow);
-  g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
+  ResetLastUpdateTimeSetting ();
 }
 
 
@@ -416,22 +430,15 @@ void InitialiseDefaultSettings ()
 
 void LoadStateInformation (const char *pBuffer)
 {
-
-  // Set the running date to be the start of the current year, in case they
-  // specify events without mentioning the year.
+  // Set the running date to be the current time in the current year, in case
+  // they specify events without mentioning the year.  Not set to January 1st,
+  // since that may specify a different daylight savings time than the current
+  // time (which is more likely to be around when the festival starts), which
+  // makes the first time input parsed be off by an hour.
 
   struct tm BrokenUpDate;
   time_t RunningDate;
-
   time (&RunningDate);
-  localtime_r (&RunningDate, &BrokenUpDate);
-  BrokenUpDate.tm_sec = 0;
-  BrokenUpDate.tm_min = 0;
-  BrokenUpDate.tm_hour = 2; // Avoid daylight savings time problems.
-  BrokenUpDate.tm_mday = 1;
-  BrokenUpDate.tm_mon = 0;
-  BrokenUpDate.tm_isdst = 0;
-  RunningDate = mktime (&BrokenUpDate);
 
   const int MAX_FIELDS = 4;
   std::string aFields[MAX_FIELDS];
@@ -482,7 +489,7 @@ void LoadStateInformation (const char *pBuffer)
 
     if (nFields > 0)
     {
-#if 1
+#if 0
       printf ("%d fields: ", nFields);
       for (iField = 0; iField < nFields; iField++)
       {
@@ -505,7 +512,6 @@ void LoadStateInformation (const char *pBuffer)
         printf ("Converted date \"%s\" to %s", aFields[0].c_str(),
           asctime (&BrokenUpDate));
 #endif
-
         // Update the running date, so subsequent times are based off this one.
         // Useful if the date is a subtitle like "Thursday, June 19" and
         // subsequent entries just list the hour and minute, in increasing
@@ -542,9 +548,9 @@ void LoadStateInformation (const char *pBuffer)
             g_AllEvents.insert (NewEventPair));
           if (!InsertEventResult.second)
           {
-            printf ("<P>Slight problem: ignoring redundant occurance of an "
-              "identical event (same place and time).  It's show \"%s\" "
-              "(prior show is \"%s\"), venue \"%s\", at time %s",
+            printf ("<P><B>Slight redundancy problem</B>: ignoring redundant "
+              "occurance of an identical event (same place and time).  It is "
+              "show \"%s\" (prior show is \"%s\"), venue \"%s\", at time %s",
               NewEvent.m_ShowIter->first.c_str(),
               InsertEventResult.first->second.m_ShowIter->first.c_str(),
               NewEventKey.m_Venue->first.c_str(),
@@ -565,12 +571,30 @@ void LoadStateInformation (const char *pBuffer)
         if (iShow != g_AllShows.end ())
           iShow->second.m_IsFavourite = true;
         else
-          printf ("<P>Unknown show name \"%s\" after Favourite keyword, "
-            "ignoring it.\n", aFields[1].c_str ());
+          printf ("<P><B>Unknown show name</B> \"%s\" after Favourite "
+            "keyword, ignoring it.\n", aFields[1].c_str ());
       }
       else if (aFields[0] == "Setting" && nFields >= 3)
       {
         g_AllSettings[aFields[1]] = aFields[2];
+      }
+      else if (aFields[0] == "ShowURL" && nFields >= 3)
+      {
+        ShowIterator iShow = g_AllShows.find (aFields[1]);
+        if (iShow != g_AllShows.end ())
+          iShow->second.m_ShowURL.assign (aFields[2]);
+        else
+          printf ("<P><B>Unknown show name</B> \"%s\" after ShowURL "
+            "keyword, ignoring it.\n", aFields[1].c_str ());
+      }
+      else if (aFields[0] == "VenueURL" && nFields >= 3)
+      {
+        VenueIterator iVenue = g_AllVenues.find (aFields[1]);
+        if (iVenue != g_AllVenues.end ())
+          iVenue->second.m_VenueURL.assign (aFields[2]);
+        else
+          printf ("<P><B>Unknown venue name</B> \"%s\" after VenueURL "
+            "keyword, ignoring it.\n", aFields[1].c_str ());
       }
     }
 
@@ -588,19 +612,166 @@ void LoadStateInformation (const char *pBuffer)
 void WriteHTMLHeader ()
 {
   printf (
-"Content-Type: text/plain\r\n\r\n" // Magic CGI header.
+"Content-Type: text/html\r\n\r\n" // Magic CGI header.
 "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
 "<HTML>\n"
 "<HEAD>\n"
-"<TITLE>Fringe Theatre Festival Vistor Schedule Optimiser</TITLE>\n"
+"<TITLE>Fringe Theatre Festival Visitor Schedule Optimiser</TITLE>\n"
 "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
 "<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.12 2014/06/18 20:45:16 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
+}
+
+
+void WriteHTMLForm ()
+{
+  struct tm BrokenUpDate;
+  EventIterator iEvent;
+  char TimeString[32];
+
+  printf ("%s\n", g_AllSettings["Title"].c_str ());
+  printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
+  printf ("<P ALIGN=\"CENTER\"><INPUT TYPE=\"SUBMIT\" VALUE=\"Update Schedule\">\n");
+
+  // Write out the event listing with checkboxes beside each event to let the
+  // user select it.  Done as a table with four columns: event time, show,
+  // venue, checkbox.
+
+  printf ("<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
+
+  time_t PreviousTime = 0;
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    // If more than 8 hours since the previous event, print out a new day
+    // heading.  The Ottawa Fringe last show is usually at midnight, and the
+    // first one after that is at noon.
+
+    time_t EventTime = iEvent->first.m_EventTime;
+    localtime_r (&EventTime, &BrokenUpDate);
+    double DeltaTime = difftime (EventTime, PreviousTime);
+    if (fabs (DeltaTime) > 60 * 60 * 8)
+    {
+      strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
+        &BrokenUpDate);
+      printf ("<TR><TH COLSPAN=\"4\">%s</TH></TR>\n", TimeString);
+    }
+    PreviousTime = EventTime;
+
+    // Print out the event itself.  Just use the hours and minutes for the time
+    // to avoid cluttering the display with full date and time values.
+
+    strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
+
+    // Add highlighting for selected events and favourite shows.
+
+    std::string StartHTML;
+    std::string EndHTML;
+
+    if (iEvent->second.m_IsSelectedByUser)
+    {
+      StartHTML.append (g_AllSettings["HTMLSelectOn"]);
+      EndHTML.insert (0, g_AllSettings["HTMLSelectOff"]);
+    }
+
+    if (iEvent->second.m_ShowIter->second.m_IsFavourite)
+    {
+      StartHTML.append (g_AllSettings["HTMLFavouriteOn"]);
+      EndHTML.insert (0, g_AllSettings["HTMLFavouriteOff"]);
+    }
+
+    // Dump out the event and a checkbox to change it.
+
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%s%s</TD><TD>%s%s%s</TD>"
+      "<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
+      "VALUE=\"blah\"%s></INPUT></TD></TR>\n",
+      StartHTML.c_str(), TimeString, EndHTML.c_str(),
+      StartHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(), EndHTML.c_str(),
+      StartHTML.c_str(), iEvent->first.m_Venue->first.c_str(), EndHTML.c_str(),
+      EventTime, iEvent->first.m_Venue->first.c_str(),
+      (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
+  }
+
+  printf ("</TABLE>\n");
+
+  // Write the hidden text box with the last update date, so we can tell if the
+  // form controls match the pasted in state data.  If not, the controls will
+  // be ignored as things like checkboxes won't match.
+
+  printf ("<INPUT TYPE=\"HIDDEN\" NAME=\"LastUpdateTime\" VALUE=\"%s\">\n",
+    g_AllSettings["LastUpdateTime"].c_str ());
+
+  // Write out the SavedState giant text area.
+
+  printf ("<TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
+
+  // First dump the starting date, so that later dates pick up the daylight
+  // savings time of that time of year, otherwise the first date read might be
+  // off by an hour.  Also future proofs the data by explicitly mentioning the
+  // year.
+
+  iEvent = g_AllEvents.begin();
+  if (iEvent != g_AllEvents.end())
+  {
+    localtime_r (&iEvent->first.m_EventTime, &BrokenUpDate);
+    strftime (TimeString, sizeof (TimeString), "%B %d, %Y", &BrokenUpDate);
+    printf ("%s\n", TimeString);
+  }
+
+  // Dump the event states.
+
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    struct tm BrokenUpDate;
+
+    localtime_r (&iEvent->first.m_EventTime, &BrokenUpDate);
+    strcpy (TimeString, asctime (&BrokenUpDate));
+    TimeString[strlen(TimeString)-1] = 0; // Trash trailing linefeed.
+
+    printf ("%s\t%s\t%s%s\n", TimeString,
+      iEvent->second.m_ShowIter->first.c_str(),
+      iEvent->first.m_Venue->first.c_str(),
+      (iEvent->second.m_IsSelectedByUser) ? "\tSelected" : "");
+  }
+
+  // Dump the show states, just for the favourite flag and the URL.
+
+  ShowIterator iShow;
+  for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
+  {
+    if (iShow->second.m_IsFavourite)
+      printf ("Favourite\t%s\n", iShow->first.c_str());
+    if (!iShow->second.m_ShowURL.empty ())
+      printf ("ShowURL\t%s\t%s\n", iShow->first.c_str(),
+        iShow->second.m_ShowURL.c_str());
+  }
+
+  // Dump the venue states, just the URL.
+
+  VenueIterator iVenue;
+  for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
+  {
+    if (!iVenue->second.m_VenueURL.empty ())
+      printf ("VenueURL\t%s\t%s\n", iVenue->first.c_str(),
+        iVenue->second.m_VenueURL.c_str());
+  }
+
+  // Dump the settings state.
+
+  SettingIterator iSetting;
+  for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
+  {
+    printf ("Setting\t%s\t%s\n",
+      iSetting->first.c_str(), iSetting->second.c_str());
+  }
+
+  printf ("</TEXTAREA>\n");
+
+  printf ("</FORM>\n");
 }
 
 
@@ -640,9 +811,11 @@ int main (int argc, char**)
 
   WriteHTMLHeader ();
 
+#if 0
   printf ("Content length is %d.\n", ContentLength);
   printf ("AmountRead is %d.\n", AmountRead);
-//  printf ("Original text: %s\n", g_InputFormText);
+  printf ("Original text: %s\n", g_InputFormText);
+#endif
 
   BuildFormNameAndValuePairsFromFormInput ();
 
@@ -655,7 +828,9 @@ int main (int argc, char**)
   }
 #endif
 
-  // Set up the global list of settings, for things like the HTML strings that highlight selected items.  They will be overwritten by user provided settings.
+  // Set up the global list of settings, for things like the HTML strings that
+  // highlight selected items.  They will be overwritten by user provided
+  // settings.
 
   InitialiseDefaultSettings ();
 
@@ -669,7 +844,31 @@ int main (int argc, char**)
     LoadStateInformation (iFormPair->second);
   }
 
+  // Check that the submitted form controls match the SavedState data.  They
+  // can mismatch if someone pastes in some old or new data into the SavedState
+  // text box.  If so, don't read the controls from the form, they are invalid
+  // in so many ways.
+
+  bool bFormDataMatchesStateData = false;
+  iFormPair = g_FormNameValuePairs.find ((char *) "LastUpdateTime");
+  if (iFormPair != g_FormNameValuePairs.end ())
+  {
+    bFormDataMatchesStateData =
+     (g_AllSettings["LastUpdateTime"] == iFormPair->second);
+  }
+
+  if (bFormDataMatchesStateData)
+  {
+    // bleeble - read in the control values.
+  }
+
+  ResetLastUpdateTimeSetting (); // Write out new form with new date.
+  WriteHTMLForm ();
+
+  // Dump out some debug information.
+
 #if 1
+  printf ("<PRE>\n");
   printf ("List of %lu shows:\n", g_AllShows.size ());
   ShowIterator iShow;
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
@@ -679,9 +878,7 @@ int main (int argc, char**)
       iShow->second.m_EventCount, iShow->second.m_ScheduledCount,
       iShow->second.m_ShowURL.c_str());
   }
-#endif
 
-#if 1
   printf ("List of %lu venues:\n", g_AllVenues.size ());
   VenueIterator iVenue;
   for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
@@ -690,9 +887,7 @@ int main (int argc, char**)
       iVenue->first.c_str(), iVenue->second.m_EventCount,
       iVenue->second.m_VenueURL.c_str());
   }
-#endif
 
-#if 1
   printf ("List of %lu events:\n", g_AllEvents.size ());
   EventIterator iEvent;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
@@ -709,9 +904,7 @@ int main (int argc, char**)
       iEvent->second.m_ShowIter->first.c_str(),
       (iEvent->second.m_IsSelectedByUser) ? ", Selected" : "");
   }
-#endif
 
-#if 1
   printf ("List of %lu settings:\n", g_AllSettings.size ());
   SettingIterator iSetting;
   for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
@@ -719,8 +912,10 @@ int main (int argc, char**)
     printf ("Setting \"%s\" is \"%s\".\n",
       iSetting->first.c_str(), iSetting->second.c_str());
   }
+  printf ("</PRE>\n");
 #endif
 
+  printf ("</BODY>\n</HTML>\n");
 
   g_AllEvents.clear();
   g_AllShows.clear();
