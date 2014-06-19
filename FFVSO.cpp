@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.13 2014/06/19 04:25:54 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.14 2014/06/19 18:35:22 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.14  2014/06/19 18:35:22  agmsmith
+ * Encode the TEXTAREA contents, so tab characters, <, >, & get through
+ * on more web browsers.
+ *
  * Revision 1.13  2014/06/19 04:25:54  agmsmith
  * Added load/save of the URLs for shows and venues, added the big
  * table listing all events with checkboxes.
@@ -82,6 +86,22 @@
 
 
 /******************************************************************************
+ * Class which contains settings data.  It's just a map of keyword strings and
+ * value strings.  Used for storing HTML fragments like the sequence to
+ * highlight a favourite show.  Or any other string thing.  The user can edit
+ * them too.
+ */
+
+typedef std::map<std::string, std::string> SettingMap;
+typedef SettingMap::iterator SettingIterator;
+
+SettingMap g_AllSettings;
+  /* The collection of all settings.  Initialised to some standard ones, which
+  get overwritten by the settings from the user's web page, see keyword
+  "Setting" in the SavedState block of text. */
+
+
+/******************************************************************************
  * Class which contains information about a single show.  Basically just the
  * title and favourite status, since the show can have multiple venues and
  * times.
@@ -102,12 +122,17 @@ typedef struct ShowStruct
     only zero or one.  If more than one then it's been overscheduled, unless
     the user really wants to see it several times. */
 
+  int m_ShowDuration;
+    /* How long does this show last?  In seconds.  Default is one hour. */
+
   std::string m_ShowURL;
     /* A link to a web page about the show. */
 
   ShowStruct () : m_EventCount(0), m_IsFavourite(false), m_ScheduledCount(0)
-  {};
-
+  {
+    m_ShowDuration = 60 *
+      atoi (g_AllSettings["DefaultShowDuration"].c_str ());
+  };
 } ShowRecord, *ShowPointer;
 
 typedef std::map<std::string, ShowRecord> ShowMap;
@@ -200,22 +225,6 @@ typedef EventMap::iterator EventIterator;
 
 EventMap g_AllEvents;
   /* A collection of all the events. */
-
-
-/******************************************************************************
- * Class which contains settings data.  It's just a map of keyword strings and
- * value strings.  Used for storing HTML fragments like the sequence to
- * highlight a favourite show.  Or any other string thing.  The user can edit
- * them too.
- */
-
-typedef std::map<std::string, std::string> SettingMap;
-typedef SettingMap::iterator SettingIterator;
-
-SettingMap g_AllSettings;
-  /* The collection of all settings.  Initialised to some standard ones, which
-  get overwritten by the settings from the user's web page, see keyword
-  "Setting" in the SavedState block of text. */
 
 
 /******************************************************************************
@@ -397,12 +406,12 @@ void ResetLastUpdateTimeSetting ()
 void InitialiseDefaultSettings ()
 {
   g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>Subtitle goes here.";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.13 2014/06/19 04:25:54 agmsmith Exp agmsmith $";
-  g_AllSettings["HTMLFavouriteOn"] = "<I>";
-  g_AllSettings["HTMLFavouriteOff"] = "</I>";
-  g_AllSettings["HTMLSelectOn"] = "<B>";
-  g_AllSettings["HTMLSelectOff"] = "</B>";
-  g_AllSettings["DefaultShowDurationMinutes"] = "60";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.14 2014/06/19 18:35:22 agmsmith Exp agmsmith $";
+  g_AllSettings["HTMLFavouriteBegin"] = "<I>";
+  g_AllSettings["HTMLFavouriteEnd"] = "</I>";
+  g_AllSettings["HTMLSelectBegin"] = "<B>";
+  g_AllSettings["HTMLSelectEnd"] = "</B>";
+  g_AllSettings["DefaultShowDuration"] = "60";
   g_AllSettings["NewDayGapMinutes"] = "360";
   ResetLastUpdateTimeSetting ();
 }
@@ -493,23 +502,8 @@ void LoadStateInformation (const char *pBuffer)
 
     // Finished reading a line of input, now process the fields.
 
-    if (nFields > 0)
+    if (nFields > 0 && !aFields[0].empty ())
     {
-#if 0
-      printf ("%d fields: ", nFields);
-      for (iField = 0; iField < nFields; iField++)
-      {
-        if (iField >= MAX_FIELDS)
-        {
-          printf ("...");
-          break;
-        }
-        printf ("%s%s", aFields[iField].c_str(),
-          (iField < nFields - 1) ? ", " : "");
-      }
-      printf ("\n");
-#endif
-
       time_t NewDate = parsedate (aFields[0].c_str(), RunningDate);
       if (NewDate > 0) // Got a valid date.
       {
@@ -593,6 +587,15 @@ void LoadStateInformation (const char *pBuffer)
           printf ("<P><B>Unknown show name</B> \"%s\" after ShowURL "
             "keyword, ignoring it.\n", aFields[1].c_str ());
       }
+      else if (aFields[0] == "ShowDuration" && nFields >= 3)
+      {
+        ShowIterator iShow = g_AllShows.find (aFields[1]);
+        if (iShow != g_AllShows.end ())
+          iShow->second.m_ShowDuration = 60 * atoi (aFields[2].c_str ());
+        else
+          printf ("<P><B>Unknown show name</B> \"%s\" after ShowDuration "
+            "keyword, ignoring it.\n", aFields[1].c_str ());
+      }
       else if (aFields[0] == "VenueURL" && nFields >= 3)
       {
         VenueIterator iVenue = g_AllVenues.find (aFields[1]);
@@ -602,11 +605,75 @@ void LoadStateInformation (const char *pBuffer)
           printf ("<P><B>Unknown venue name</B> \"%s\" after VenueURL "
             "keyword, ignoring it.\n", aFields[1].c_str ());
       }
+      else
+      {
+        printf ("<P><B>Ignoring unparseable line</B> with %d fields: ", nFields);
+        for (iField = 0; iField < nFields; iField++)
+        {
+          if (iField >= MAX_FIELDS)
+          {
+            printf ("...");
+            break;
+          }
+          printf ("%s%s", aFields[iField].c_str(),
+            (iField < nFields - 1) ? ", " : "");
+        }
+        printf ("\n");
+      }
     }
 
     if (Letter == '\n') // Leave NUL alone so outer loop exits.
       Letter = *++pSource;
   }
+}
+
+
+/******************************************************************************
+ * Look at the data from the form controls and add it to the current state.
+ */
+
+void ReadFormControls ()
+{
+  FormNameToValuesMap::iterator iFormPair;
+
+  // Look for the checkboxes for events.  Goofily, if the checkbox is
+  // unchecked, there is no data.  So we have to look for each event's checkbox
+  // to see if it is on or if it is missing.
+
+  EventIterator iEvent;
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    time_t EventTime = iEvent->first.m_EventTime;
+    char TimeString[32];
+    sprintf (TimeString, "Event,%ld,", EventTime);
+    std::string CheckboxName (TimeString);
+    CheckboxName.append (iEvent->first.m_Venue->first);
+
+    iFormPair = g_FormNameValuePairs.find ((char *) CheckboxName.c_str ());
+    if (iFormPair != g_FormNameValuePairs.end () &&
+    strcmp (iFormPair->second, "On") == 0)
+      iEvent->second.m_IsSelectedByUser = true;
+    else
+      iEvent->second.m_IsSelectedByUser = false;
+  }
+
+  // Look for the checkboxes that mark favourite shows.
+
+  ShowIterator iShow;
+  for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
+  {
+    std::string CheckboxName ("Show,");
+    CheckboxName.append (iShow->first);
+
+    iFormPair = g_FormNameValuePairs.find ((char *) CheckboxName.c_str ());
+    if (iFormPair != g_FormNameValuePairs.end () &&
+    strcmp (iFormPair->second, "On") == 0)
+      iShow->second.m_IsFavourite = true;
+    else
+      iShow->second.m_IsFavourite = false;
+  }
+
+// bleeble
 }
 
 
@@ -676,7 +743,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.13 2014/06/19 04:25:54 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.14 2014/06/19 18:35:22 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -684,21 +751,31 @@ void WriteHTMLHeader ()
 
 void WriteHTMLForm ()
 {
-  struct tm BrokenUpDate;
   EventIterator iEvent;
+  ShowIterator iShow;
+  SettingIterator iSetting;
+  VenueIterator iVenue;
+
+  struct tm BrokenUpDate;
   char OutputBuffer[4096];
   char TimeString[32];
   int NewDayGapMinutes = atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
 
   printf ("%s\n", g_AllSettings["Title"].c_str ());
   printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
-  printf ("<P ALIGN=\"CENTER\"><INPUT TYPE=\"SUBMIT\" VALUE=\"Update Schedule\">\n");
+  printf ("<P ALIGN=\"CENTER\">");
+  printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
+    "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n");
+  printf ("<P ALIGN=\"CENTER\">");
+  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule\">\n");
+  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"Print Schedule\">\n");
 
   // Write out the event listing with checkboxes beside each event to let the
-  // user select it.  Done as a table with four columns: event time, show,
-  // venue, checkbox.
+  // user select it.  Done as a table with five columns: event time, duration,
+  // show name, venue name, checkbox.
 
-  printf ("<P><TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
+  printf ("<H2><A NAME=\"Events\"></A>Listing of %ld Events</H2><P>"
+    "<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllEvents.size ());
 
   time_t PreviousTime = 0;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
@@ -730,22 +807,23 @@ void WriteHTMLForm ()
 
     if (iEvent->second.m_IsSelectedByUser)
     {
-      StartHTML.append (g_AllSettings["HTMLSelectOn"]);
-      EndHTML.insert (0, g_AllSettings["HTMLSelectOff"]);
+      StartHTML.append (g_AllSettings["HTMLSelectBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLSelectEnd"]);
     }
 
     if (iEvent->second.m_ShowIter->second.m_IsFavourite)
     {
-      StartHTML.append (g_AllSettings["HTMLFavouriteOn"]);
-      EndHTML.insert (0, g_AllSettings["HTMLFavouriteOff"]);
+      StartHTML.append (g_AllSettings["HTMLFavouriteBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
     }
 
     // Dump out the event and a checkbox to change it.
 
-    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%s%s</TD><TD>%s%s%s</TD>"
-      "<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
-      "VALUE=\"blah\"%s></INPUT></TD></TR>\n",
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
+      "<TD>%s%s%s</TD><TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
+      "VALUE=\"On\"%s></INPUT></TD></TR>\n",
       StartHTML.c_str(), TimeString, EndHTML.c_str(),
+      StartHTML.c_str(), iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
       StartHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(), EndHTML.c_str(),
       StartHTML.c_str(), iEvent->first.m_Venue->first.c_str(), EndHTML.c_str(),
       EventTime, iEvent->first.m_Venue->first.c_str(),
@@ -753,6 +831,54 @@ void WriteHTMLForm ()
   }
 
   printf ("</TABLE>\n");
+
+  // Write out a list of the shows.  Includes show name, duration,
+  // #performances, #times seen, and a checkbox to select favourite ones.
+
+  printf ("<H2><A NAME=\"Shows\"></A>Listing of %ld Shows</H2><P>"
+    "<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllShows.size ());
+  printf ("<TR><TH>Show Title</TH><TH>Minutes</TH><TH>Perform-<BR>ances</TH>"
+    "<TH>Times<BR>Seen</TH><TH>Your<BR>Favourite?</TH></TR>\n");
+
+  for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
+  {
+    // Add highlighting for favourite shows.
+
+    std::string StartHTML;
+    std::string EndHTML;
+
+    if (iShow->second.m_IsFavourite)
+    {
+      StartHTML.append (g_AllSettings["HTMLFavouriteBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
+    }
+
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%d%s</TD>"
+      "<TD>%s%d%s</TD><TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Show,%s\" "
+      "VALUE=\"On\"%s></INPUT></TD></TR>\n",
+      StartHTML.c_str(), iShow->first.c_str(), EndHTML.c_str(),
+      StartHTML.c_str(), iShow->second.m_ShowDuration / 60, EndHTML.c_str(),
+      StartHTML.c_str(), iShow->second.m_EventCount, EndHTML.c_str(),
+      StartHTML.c_str(), iShow->second.m_ScheduledCount, EndHTML.c_str(),
+      iShow->first.c_str(), iShow->second.m_IsFavourite ? " CHECKED" : "");
+  }
+
+  printf ("</TABLE>\n");
+
+  // Write out a list of the venues.  Includes venue name, #performances.
+
+  printf ("<H2><A NAME=\"Venues\"></A>Listing of %ld Venues</H2><P>"
+    "<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllVenues.size ());
+  printf ("<TR><TH>Venue Name</TH><TH>Perform-<BR>ances</TH></TR>\n");
+
+  for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
+  {
+    printf ("<TR VALIGN=\"TOP\"><TD>%s</TD><TD>%d</TD></TR>\n",
+      iVenue->first.c_str(), iVenue->second.m_EventCount);
+  }
+
+  printf ("</TABLE>\n");
+// bleeble;
 
   // Write the hidden text box with the last update date, so we can tell if the
   // form controls match the pasted in state data.  If not, the controls will
@@ -763,12 +889,12 @@ void WriteHTMLForm ()
 
   // Write out the SavedState giant text area.
 
-  printf ("<TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
+  printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2><P>"
+    "<TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
 
   // Dump the settings state.  Do it first so default settings get used when
   // reading the events.
 
-  SettingIterator iSetting;
   for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
   {
     snprintf (OutputBuffer, sizeof (OutputBuffer), "Setting\t%s\t%s\n",
@@ -801,15 +927,25 @@ void WriteHTMLForm ()
     EncodeAndPrintText (OutputBuffer);
   }
 
-  // Dump the show states, just for the favourite flag and the URL.
+  // Dump the show states, just for the favourite flag, duration if not
+  // default, and the URL.
 
-  ShowIterator iShow;
+  int DefaultShowDuration =
+    60 * atoi (g_AllSettings["DefaultShowDuration"].c_str ());
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
   {
     if (iShow->second.m_IsFavourite)
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer),
         "Favourite\t%s\n", iShow->first.c_str());
+      EncodeAndPrintText (OutputBuffer);
+    }
+
+    if (iShow->second.m_ShowDuration != DefaultShowDuration)
+    {
+      snprintf (OutputBuffer, sizeof (OutputBuffer),
+        "ShowDuration\t%s\t%d\n", iShow->first.c_str (),
+        iShow->second.m_ShowDuration / 60);
       EncodeAndPrintText (OutputBuffer);
     }
 
@@ -824,7 +960,6 @@ void WriteHTMLForm ()
 
   // Dump the venue states, just the URL.
 
-  VenueIterator iVenue;
   for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
   {
     if (!iVenue->second.m_VenueURL.empty ())
@@ -845,7 +980,7 @@ void WriteHTMLForm ()
  * Finally, the main program which drives it all.
  */
 
-int main (int argc, char**)
+int main (int argc, char **argv)
 {
   FormNameToValuesMap::iterator iFormPair;
 
@@ -878,25 +1013,30 @@ int main (int argc, char**)
   WriteHTMLHeader ();
 
 #if 0
+  printf ("<PRE>Argc %d, argv: ", argc);
+  for (int i = 0; i < argc; i++)
+    printf ("%s%s", argv[i], (i < argc - 1) ? ", " : "\n");
   printf ("Content length is %d.\n", ContentLength);
   printf ("AmountRead is %d.\n", AmountRead);
   printf ("Original text: %s\n", g_InputFormText);
+  printf ("</PRE>\n");
 #endif
 
   BuildFormNameAndValuePairsFromFormInput ();
 
 #if 0
-  printf ("Converted form input:\n");
+  printf ("Converted form input:\n<PRE>");
   for (iFormPair = g_FormNameValuePairs.begin();
   iFormPair != g_FormNameValuePairs.end(); ++iFormPair)
   {
     printf ("Name \"%s\", value: %s\n", iFormPair->first, iFormPair->second);
   }
+  printf ("</PRE>\n");
 #endif
 
   // Set up the global list of settings, for things like the HTML strings that
   // highlight selected items.  They will be overwritten by user provided
-  // settings.
+  // settings.  Some are also used for defaults while reading other values.
 
   InitialiseDefaultSettings ();
 
@@ -925,7 +1065,7 @@ int main (int argc, char**)
 
   if (bFormDataMatchesStateData)
   {
-    // bleeble - read in the control values.
+    ReadFormControls ();
   }
 
   ResetLastUpdateTimeSetting (); // Write out new form with new date.
@@ -933,7 +1073,7 @@ int main (int argc, char**)
 
   // Dump out some debug information.
 
-#if 1
+#if 0
   printf ("<PRE>\n");
   printf ("List of %lu shows:\n", g_AllShows.size ());
   ShowIterator iShow;
