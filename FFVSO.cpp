@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.18 2014/06/20 19:44:56 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.19 2014/06/20 20:01:50 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.19  2014/06/20 20:01:50  agmsmith
+ * Wording.
+ *
  * Revision 1.18  2014/06/20 19:44:56  agmsmith
  * Now computes and displays conflicts.
  *
@@ -95,8 +98,10 @@
 
 /* STL (Standard Template Library) headers. */
 
+#include <algorithm>
 #include <map>
 #include <string>
+#include <vector>
 
 
 /******************************************************************************
@@ -242,7 +247,13 @@ typedef std::map<EventKeyStruct, EventRecord, EventKeyStruct> EventMap;
 typedef EventMap::iterator EventIterator;
 
 EventMap g_AllEvents;
-  /* A collection of all the events. */
+  /* A collection of all the events, indexed by time and venue. */
+
+typedef std::vector<EventIterator> SortedEventVector;
+SortedEventVector g_EventsSortedByTimeAndShow;
+  /* A list of all the events sorted by time and show.  The natural order of
+  time and venue just doesn't read right when you're looking through a list,
+  so we'll use this ordering when printing Human readable output. */
 
 
 /******************************************************************************
@@ -448,7 +459,7 @@ void InitialiseDefaultSettings ()
 {
   g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.18 2014/06/20 19:44:56 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.19 2014/06/20 20:01:50 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
   g_AllSettings["HTMLConflictEnd"] = "</FONT>";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
@@ -824,7 +835,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.18 2014/06/20 19:44:56 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.19 2014/06/20 20:01:50 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -866,8 +877,12 @@ void WriteHTMLForm ()
     "<P><TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllEvents.size ());
 
   time_t PreviousTime = 0;
-  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  int iSortedEvent;
+  const int iEndSortedEvent = g_EventsSortedByTimeAndShow.size ();
+  for (iSortedEvent = 0; iSortedEvent < iEndSortedEvent; ++iSortedEvent)
   {
+    iEvent = g_EventsSortedByTimeAndShow[iSortedEvent];
+
     // If more than 6 hours (or whatever NewDayGapMinutes is set to) since the
     // previous event, print out a new day heading.  The Ottawa Fringe last
     // show is usually at midnight, and the first one after that is at noon.
@@ -1162,6 +1177,62 @@ void WritePrintableListing ()
 
 
 /******************************************************************************
+ * Build a list of all the events sorted by time and show name.
+ */
+
+bool CompareEventByTimeAndShowName (EventIterator ItemA, EventIterator ItemB)
+{
+  // Compare the starting time of the events first.
+
+  if (ItemA->first.m_EventTime < ItemB->first.m_EventTime)
+    return true;
+
+  if (ItemA->first.m_EventTime > ItemB->first.m_EventTime)
+    return false;
+
+  // If at the same time, then compare show names to sort them out.
+
+  int StringTest = strcasecmp (
+    ItemA->second.m_ShowIter->first.c_str (),
+    ItemB->second.m_ShowIter->first.c_str ());
+
+  if (StringTest < 0)
+    return true;
+
+  if (StringTest > 0)
+    return false;
+
+  // Fall back to comparing venue names.  Could happen if the show is showing
+  // at two venues at the same time.
+
+  StringTest = strcasecmp (
+    ItemA->first.m_Venue->first.c_str (),
+    ItemB->first.m_Venue->first.c_str ());
+
+  if (StringTest < 0)
+    return true;
+
+  return false;
+}
+
+
+void SortEventsByTimeAndShow ()
+{
+  EventIterator iEvent;
+
+  g_EventsSortedByTimeAndShow.clear ();
+  g_EventsSortedByTimeAndShow.reserve (g_AllEvents.size ());
+
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+    g_EventsSortedByTimeAndShow.push_back (iEvent);
+
+  std::sort (g_EventsSortedByTimeAndShow.begin (),
+    g_EventsSortedByTimeAndShow.end (),
+    CompareEventByTimeAndShowName);
+}
+
+
+/******************************************************************************
  * Compute conflicts, estimate walking times for the user, count number of
  * times the user sees each show and compute various other statistics.
  */
@@ -1321,9 +1392,9 @@ int main (int argc, char **argv)
     ReadFormControls ();
   }
 
+  SortEventsByTimeAndShow ();
   ComputeConflictsAndStatistics ();
-
-  ResetLastUpdateTimeSetting (); // Write out new form with new date.
+  ResetLastUpdateTimeSetting (); // New form needs new date.
 
   if (g_FormNameValuePairs.find (const_cast<char *> ("PrintSchedule")) !=
   g_FormNameValuePairs.end ()) // Was the printable schedule button used?
@@ -1383,11 +1454,13 @@ int main (int argc, char **argv)
 
   printf ("</BODY>\n</HTML>\n");
 
+  g_EventsSortedByTimeAndShow.clear();
   g_AllEvents.clear();
   g_AllShows.clear();
   g_AllVenues.clear();
   g_AllSettings.clear();
   g_FormNameValuePairs.clear ();
   delete [] g_InputFormText;
+  g_InputFormText = NULL;
   return 0;
 }
