@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.17 2014/06/20 17:59:03 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.18 2014/06/20 19:44:56 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.18  2014/06/20 19:44:56  agmsmith
+ * Now computes and displays conflicts.
+ *
  * Revision 1.17  2014/06/20 17:59:03  agmsmith
  * Move selected events and favourite shows to end of raw data listing,
  * so it's easier to cut and paste in new schedule data from the Fringe.
@@ -445,7 +448,7 @@ void InitialiseDefaultSettings ()
 {
   g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.17 2014/06/20 17:59:03 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.18 2014/06/20 19:44:56 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
   g_AllSettings["HTMLConflictEnd"] = "</FONT>";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
@@ -821,7 +824,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.17 2014/06/20 17:59:03 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.18 2014/06/20 19:44:56 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -985,7 +988,8 @@ void WriteHTMLForm ()
     "<P>You can copy this out and save it in a text file to preserve your "
     "selections.  Paste it back in later and hit the update button to "
     "restore your custom schedule.  Also you may be able to paste in event "
-    "listings from the Festival web site to correct the schedule.\n"
+    "listings from the Festival web site to correct the schedule, if they "
+    "have made changes.\n"
     "<P><TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
 
   // Dump the settings state.  Do it first so default settings get used when
