@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.14 2014/06/19 18:35:22 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.15 2014/06/19 20:49:22 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.15  2014/06/19 20:49:22  agmsmith
+ * Now reads form data for selecting events and favourite shows.
+ * ShowDuration now read and written and displayed.
+ *
  * Revision 1.14  2014/06/19 18:35:22  agmsmith
  * Encode the TEXTAREA contents, so tab characters, <, >, & get through
  * on more web browsers.
@@ -405,8 +409,9 @@ void ResetLastUpdateTimeSetting ()
 
 void InitialiseDefaultSettings ()
 {
-  g_AllSettings["Title"] = "<H1>Your Title Here</H1><P>Subtitle goes here.";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.14 2014/06/19 18:35:22 agmsmith Exp agmsmith $";
+  g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
+  g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.15 2014/06/19 20:49:22 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
   g_AllSettings["HTMLFavouriteEnd"] = "</I>";
   g_AllSettings["HTMLSelectBegin"] = "<B>";
@@ -649,7 +654,8 @@ void ReadFormControls ()
     std::string CheckboxName (TimeString);
     CheckboxName.append (iEvent->first.m_Venue->first);
 
-    iFormPair = g_FormNameValuePairs.find ((char *) CheckboxName.c_str ());
+    iFormPair = g_FormNameValuePairs.find (
+      const_cast<char *>(CheckboxName.c_str ()));
     if (iFormPair != g_FormNameValuePairs.end () &&
     strcmp (iFormPair->second, "On") == 0)
       iEvent->second.m_IsSelectedByUser = true;
@@ -665,7 +671,8 @@ void ReadFormControls ()
     std::string CheckboxName ("Show,");
     CheckboxName.append (iShow->first);
 
-    iFormPair = g_FormNameValuePairs.find ((char *) CheckboxName.c_str ());
+    iFormPair = g_FormNameValuePairs.find (
+      const_cast<char *>(CheckboxName.c_str ()));
     if (iFormPair != g_FormNameValuePairs.end () &&
     strcmp (iFormPair->second, "On") == 0)
       iShow->second.m_IsFavourite = true;
@@ -743,7 +750,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.14 2014/06/19 18:35:22 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.15 2014/06/19 20:49:22 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -758,17 +765,17 @@ void WriteHTMLForm ()
 
   struct tm BrokenUpDate;
   char OutputBuffer[4096];
-  char TimeString[32];
+  char TimeString[40];
   int NewDayGapMinutes = atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
 
-  printf ("%s\n", g_AllSettings["Title"].c_str ());
+  printf ("%s\n", g_AllSettings["TitleEdit"].c_str ());
   printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
   printf ("<P ALIGN=\"CENTER\">");
   printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
     "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n");
   printf ("<P ALIGN=\"CENTER\">");
-  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule\">\n");
-  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"Print Schedule\">\n");
+  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule with your Changes\">\n");
+  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"See Printable Schedule\">\n");
 
   // Write out the event listing with checkboxes beside each event to let the
   // user select it.  Done as a table with five columns: event time, duration,
@@ -791,7 +798,7 @@ void WriteHTMLForm ()
     {
       strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
         &BrokenUpDate);
-      printf ("<TR><TH COLSPAN=\"4\">%s</TH></TR>\n", TimeString);
+      printf ("<TR><TH COLSPAN=\"5\">%s</TH></TR>\n", TimeString);
     }
     PreviousTime = EventTime;
 
@@ -878,7 +885,6 @@ void WriteHTMLForm ()
   }
 
   printf ("</TABLE>\n");
-// bleeble;
 
   // Write the hidden text box with the last update date, so we can tell if the
   // form controls match the pasted in state data.  If not, the controls will
@@ -887,7 +893,9 @@ void WriteHTMLForm ()
   printf ("<INPUT TYPE=\"HIDDEN\" NAME=\"LastUpdateTime\" VALUE=\"%s\">\n",
     g_AllSettings["LastUpdateTime"].c_str ());
 
-  // Write out the SavedState giant text area.
+  // Write out the SavedState giant text area.  To avoid HTML
+  // misinterpretation problems, encode suspect characters for
+  // the data inside the textarea.
 
   printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2><P>"
     "<TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
@@ -927,7 +935,7 @@ void WriteHTMLForm ()
     EncodeAndPrintText (OutputBuffer);
   }
 
-  // Dump the show states, just for the favourite flag, duration if not
+  // Dump the show states, for the favourite flag, duration if not
   // default, and the URL.
 
   int DefaultShowDuration =
@@ -973,6 +981,70 @@ void WriteHTMLForm ()
   printf ("</TEXTAREA>\n");
 
   printf ("</FORM>\n");
+}
+
+
+/******************************************************************************
+ * Write out HTML for just the user's events, using only plain text, no form
+ * controls or other things that would look bad on a printed page.
+ */
+
+void WritePrintableListing ()
+{
+  struct tm BrokenUpDate;
+  EventIterator iEvent;
+  char TimeString[40];
+  int NewDayGapMinutes = atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
+
+  printf ("%s\n", g_AllSettings["TitlePrint"].c_str ());
+
+  // Write out the event listing, with just the user's selected events.
+  // Done as a table with four columns: event time, duration, show name,
+  // venue name.
+
+  printf ("<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
+
+  time_t PreviousTime = 0;
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    if (!iEvent->second.m_IsSelectedByUser)
+      continue;
+
+    // If long enough time has gone by, print out a new day heading.
+
+    time_t EventTime = iEvent->first.m_EventTime;
+    localtime_r (&EventTime, &BrokenUpDate);
+    double DeltaTime = difftime (EventTime, PreviousTime);
+    if (fabs (DeltaTime) > NewDayGapMinutes * 60)
+    {
+      strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
+        &BrokenUpDate);
+      printf ("<TR><TH COLSPAN=\"4\">%s</TH></TR>\n", TimeString);
+    }
+    PreviousTime = EventTime;
+
+    // Print out the event itself.
+
+    strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
+
+    printf ("<TR VALIGN=\"TOP\"><TD>%s</TD><TD>%d</TD><TD>%s</TD>"
+      "<TD>%s</TD></TR>\n",
+      TimeString,
+      iEvent->second.m_ShowIter->second.m_ShowDuration / 60,
+      iEvent->second.m_ShowIter->first.c_str(),
+      iEvent->first.m_Venue->first.c_str());
+  }
+
+  printf ("</TABLE>\n");
+
+  // Print a footer listing the time when the table was printed,
+  // so you can tell different versions of the table apart.
+
+  time_t CurrentTime;
+  time (&CurrentTime);
+  localtime_r (&CurrentTime, &BrokenUpDate);
+  strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
+  printf ("<P><FONT SIZE=\"-2\">Printed on %s.</FONT>\n", TimeString);
 }
 
 
@@ -1044,7 +1116,8 @@ int main (int argc, char **argv)
   // (checkbox markings) afterwards.  If there isn't any saved data, just leave
   // it empty.
 
-  iFormPair = g_FormNameValuePairs.find ((char *) "SavedState");
+  iFormPair = g_FormNameValuePairs.find (
+    const_cast<char *>("SavedState"));
   if (iFormPair != g_FormNameValuePairs.end ())
   {
     LoadStateInformation (iFormPair->second);
@@ -1056,7 +1129,8 @@ int main (int argc, char **argv)
   // in so many ways.
 
   bool bFormDataMatchesStateData = false;
-  iFormPair = g_FormNameValuePairs.find ((char *) "LastUpdateTime");
+  iFormPair = g_FormNameValuePairs.find (
+    const_cast<char *> ("LastUpdateTime"));
   if (iFormPair != g_FormNameValuePairs.end ())
   {
     bFormDataMatchesStateData =
@@ -1069,7 +1143,12 @@ int main (int argc, char **argv)
   }
 
   ResetLastUpdateTimeSetting (); // Write out new form with new date.
-  WriteHTMLForm ();
+
+  if (g_FormNameValuePairs.find (const_cast<char *> ("PrintSchedule")) !=
+  g_FormNameValuePairs.end ()) // Was the printable schedule button used?
+    WritePrintableListing (); // Just the user's events listed plainly.
+  else // Output the user interface with all the bells and whistles.
+    WriteHTMLForm ();
 
   // Dump out some debug information.
 
