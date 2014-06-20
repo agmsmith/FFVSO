@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.16 2014/06/20 17:22:20 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.17 2014/06/20 17:59:03 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.17  2014/06/20 17:59:03  agmsmith
+ * Move selected events and favourite shows to end of raw data listing,
+ * so it's easier to cut and paste in new schedule data from the Fringe.
+ *
  * Revision 1.16  2014/06/20 17:22:20  agmsmith
  * Printable listing feature added.
  *
@@ -219,10 +223,14 @@ typedef struct EventStruct
     /* TRUE if the user has selected this event, meaning they want to attend
     the show at this specific place and time. */
 
+  bool m_IsConflicting;
+    /* Conflicts with some other show, will be drawn in red or highlighted in
+    some way.  All shows involved in the conflict will have this flag set. */
+
   ShowIterator m_ShowIter;
     /* Identifies the show that is being performed at this place and time. */
 
-  EventStruct () : m_IsSelectedByUser(false)
+  EventStruct () : m_IsSelectedByUser(false), m_IsConflicting(false)
   {};
 
 } EventRecord, *EventPointer;
@@ -232,6 +240,29 @@ typedef EventMap::iterator EventIterator;
 
 EventMap g_AllEvents;
   /* A collection of all the events. */
+
+
+/******************************************************************************
+ * A collection of global level statistics.
+ */
+
+struct StatisticsStruct
+{
+  int m_TotalNumberOfConflicts;
+    /* Number of conflicts present.  Includes counting all events involved in a
+    conflict, not just the first one. */
+
+  int m_TotalNumberOfEventsScheduled;
+    /* Number of events the user is going to see in their schedule. */
+
+  int m_TotalSecondsWatched;
+    /* How much show watching is the user doing with their schedule? */
+
+  StatisticsStruct () : m_TotalNumberOfConflicts(0),
+    m_TotalNumberOfEventsScheduled(0), m_TotalSecondsWatched(0)
+  {};
+
+} g_Statistics;
 
 
 /******************************************************************************
@@ -414,13 +445,17 @@ void InitialiseDefaultSettings ()
 {
   g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.16 2014/06/20 17:22:20 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.17 2014/06/20 17:59:03 agmsmith Exp agmsmith $";
+  g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
+  g_AllSettings["HTMLConflictEnd"] = "</FONT>";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
   g_AllSettings["HTMLFavouriteEnd"] = "</I>";
   g_AllSettings["HTMLSelectBegin"] = "<B>";
   g_AllSettings["HTMLSelectEnd"] = "</B>";
   g_AllSettings["DefaultShowDuration"] = "60";
   g_AllSettings["NewDayGapMinutes"] = "360";
+  g_AllSettings["DefaultTravelTime"] = "10";
+  g_AllSettings["DefaultLineupTime"] = "5";
   ResetLastUpdateTimeSetting ();
 }
 
@@ -717,8 +752,6 @@ void ReadFormControls ()
     else
       iShow->second.m_IsFavourite = false;
   }
-
-// bleeble
 }
 
 
@@ -765,7 +798,7 @@ void EncodeAndPrintText (const char *pBuffer)
   }
   *pDest = 0;
 
-  printf ("%s", pOutputBuffer);  
+  printf ("%s", pOutputBuffer); 
   delete [] pOutputBuffer;
 }
 
@@ -788,7 +821,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.16 2014/06/20 17:22:20 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.17 2014/06/20 17:59:03 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -810,7 +843,12 @@ void WriteHTMLForm ()
   printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
   printf ("<P ALIGN=\"CENTER\">");
   printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
-    "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n");
+    "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A><BR>\n"
+    "You have %d conflicts and are seeing %d performances (total time %d:%02d).\n",
+    g_Statistics.m_TotalNumberOfConflicts,
+    g_Statistics.m_TotalNumberOfEventsScheduled,
+    g_Statistics.m_TotalSecondsWatched / 60 / 60,
+    g_Statistics.m_TotalSecondsWatched / 60 % 60);
   printf ("<P ALIGN=\"CENTER\">");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule with your Changes\">\n");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"See Printable Schedule\">\n");
@@ -819,8 +857,10 @@ void WriteHTMLForm ()
   // user select it.  Done as a table with five columns: event time, duration,
   // show name, venue name, checkbox.
 
-  printf ("<H2><A NAME=\"Events\"></A>Listing of %ld Events</H2><P>"
-    "<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllEvents.size ());
+  printf ("<H2><A NAME=\"Events\"></A>Listing of %ld Events</H2>\n"
+    "<P>Use the checkboxes to select the ones you want to see, "
+    "then hit the Update Schedule button.\n"
+    "<P><TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllEvents.size ());
 
   time_t PreviousTime = 0;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
@@ -845,7 +885,7 @@ void WriteHTMLForm ()
 
     strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
 
-    // Add highlighting for selected events and favourite shows.
+    // Add highlighting for selected events, conflicts and favourite shows.
 
     std::string StartHTML;
     std::string EndHTML;
@@ -860,6 +900,12 @@ void WriteHTMLForm ()
     {
       StartHTML.append (g_AllSettings["HTMLFavouriteBegin"]);
       EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
+    }
+
+    if (iEvent->second.m_IsConflicting)
+    {
+      StartHTML.append (g_AllSettings["HTMLConflictBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
     }
 
     // Dump out the event and a checkbox to change it.
@@ -935,8 +981,12 @@ void WriteHTMLForm ()
   // misinterpretation problems, encode suspect characters for
   // the data inside the textarea.
 
-  printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2><P>"
-    "<TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
+  printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2>"
+    "<P>You can copy this out and save it in a text file to preserve your "
+    "selections.  Paste it back in later and hit the update button to "
+    "restore your custom schedule.  Also you may be able to paste in event "
+    "listings from the Festival web site to correct the schedule.\n"
+    "<P><TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
 
   // Dump the settings state.  Do it first so default settings get used when
   // reading the events.
@@ -972,8 +1022,8 @@ void WriteHTMLForm ()
     EncodeAndPrintText (OutputBuffer);
   }
 
-  // Dump the show states, for the duration if not
-  // default, and the URL.  Favourites done later to make cutting and pasting easier.
+  // Dump the show states, for the duration if not default, and the URL.
+  // Favourites done later to make cutting and pasting easier.
 
   int DefaultShowDuration =
     60 * atoi (g_AllSettings["DefaultShowDuration"].c_str ());
@@ -1058,9 +1108,8 @@ void WritePrintableListing ()
 
   printf ("%s\n", g_AllSettings["TitlePrint"].c_str ());
 
-  // Write out the event listing, with just the user's selected events.
-  // Done as a table with four columns: event time, duration, show name,
-  // venue name.
+  // Write out the event listing, with just the user's selected events.  Done
+  // as a table with four columns: event time, duration, show name, venue name.
 
   printf ("<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
 
@@ -1097,14 +1146,80 @@ void WritePrintableListing ()
 
   printf ("</TABLE>\n");
 
-  // Print a footer listing the time when the table was printed,
-  // so you can tell different versions of the table apart.
+  // Print a footer listing the time when the table was printed, so you can
+  // tell different versions of the table apart.
 
   time_t CurrentTime;
   time (&CurrentTime);
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-2\">Printed on %s.</FONT>\n", TimeString);
+}
+
+
+/******************************************************************************
+ * Compute conflicts, estimate walking times for the user, count number of
+ * times the user sees each show and compute various other statistics.
+ */
+
+void ComputeConflictsAndStatistics ()
+{
+  EventIterator iEvent;
+
+  /* Count up the scheduled events.  Each one gets added to the total for the
+  show, and to the grand total. */
+
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    if (!iEvent->second.m_IsSelectedByUser)
+      continue;
+
+    iEvent->second.m_ShowIter->second.m_ScheduledCount++;
+
+    g_Statistics.m_TotalNumberOfEventsScheduled++;
+
+    g_Statistics.m_TotalSecondsWatched +=
+      iEvent->second.m_ShowIter->second.m_ShowDuration;
+  }
+
+  /* Look for conflicts, where the start time of a show is inside the time
+  range of the previous show (including the time it takes to walk between
+  venues and the time it takes to wait in line to buy tickets).  Fortunately
+  the events are already sorted by start time.  Future feature: do a path
+  search through the time it takes to go from one venue to another to find a
+  path between any two venues and the corresponding time. */
+
+  int TimeBetweenEvents = // Currently the same for all venues.
+    atoi (g_AllSettings["DefaultTravelTime"].c_str ()) * 60 +
+    atoi (g_AllSettings["DefaultLineupTime"].c_str ()) * 60;
+  EventIterator iPreviousEvent = g_AllEvents.end();
+  time_t PreviousEventEndTime = 0;
+
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    if (!iEvent->second.m_IsSelectedByUser)
+      continue;
+
+    if (iEvent->first.m_EventTime < PreviousEventEndTime &&
+    iPreviousEvent != g_AllEvents.end())
+    {
+      // Have a conflict with the previous event.
+
+      iEvent->second.m_IsConflicting = true;
+      g_Statistics.m_TotalNumberOfConflicts++;
+
+      if (!iPreviousEvent->second.m_IsConflicting)
+      {
+        iPreviousEvent->second.m_IsConflicting = true;
+        g_Statistics.m_TotalNumberOfConflicts++;
+      }
+    }
+
+    iPreviousEvent = iEvent;
+    PreviousEventEndTime = iEvent->first.m_EventTime +
+      iEvent->second.m_ShowIter->second.m_ShowDuration +
+      TimeBetweenEvents;
+  }
 }
 
 
@@ -1201,6 +1316,8 @@ int main (int argc, char **argv)
   {
     ReadFormControls ();
   }
+
+  ComputeConflictsAndStatistics ();
 
   ResetLastUpdateTimeSetting (); // Write out new form with new date.
 
