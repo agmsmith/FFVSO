@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.15 2014/06/19 20:49:22 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.16 2014/06/20 17:22:20 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.16  2014/06/20 17:22:20  agmsmith
+ * Printable listing feature added.
+ *
  * Revision 1.15  2014/06/19 20:49:22  agmsmith
  * Now reads form data for selecting events and favourite shows.
  * ShowDuration now read and written and displayed.
@@ -411,7 +414,7 @@ void InitialiseDefaultSettings ()
 {
   g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.15 2014/06/19 20:49:22 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.16 2014/06/20 17:22:20 agmsmith Exp agmsmith $";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
   g_AllSettings["HTMLFavouriteEnd"] = "</I>";
   g_AllSettings["HTMLSelectBegin"] = "<B>";
@@ -525,7 +528,7 @@ void LoadStateInformation (const char *pBuffer)
         RunningDate = NewDate;
 
         // Load an event, if we have enough fields to define one.  Need show
-        // and venue, and optionally the selected flag.
+        // and venue after the date field.  Otherwise it's just a date update.
 
         if (nFields >= 3)
         {
@@ -609,6 +612,41 @@ void LoadStateInformation (const char *pBuffer)
         else
           printf ("<P><B>Unknown venue name</B> \"%s\" after VenueURL "
             "keyword, ignoring it.\n", aFields[1].c_str ());
+      }
+      else if (aFields[0] == "Selected" && nFields >= 3)
+      {
+        time_t SelectedDate = parsedate (aFields[1].c_str(), RunningDate);
+        if (SelectedDate <= 0)
+        {
+          printf ("<P><B>Bad date</B> \"%s\" after Selected "
+            "keyword, ignoring it.\n", aFields[1].c_str ());
+        }
+        else
+        {
+          VenueIterator iVenue = g_AllVenues.find (aFields[2]);
+          if (iVenue == g_AllVenues.end ())
+          {
+            printf ("<P><B>Unknown venue name</B> \"%s\" after Selected "
+              "keyword, ignoring it.\n", aFields[2].c_str ());
+          }
+          else
+          {
+            EventKeyRecord SelectedEventKey;
+            SelectedEventKey.m_EventTime = SelectedDate;
+            SelectedEventKey.m_Venue = iVenue;
+            EventIterator iSelectedEvent = g_AllEvents.find (SelectedEventKey);
+            if (iSelectedEvent == g_AllEvents.end ())
+            {
+              printf ("<P><B>No event exists</B> for date \"%s\" and venue "
+                "\"%s\" after Selected keyword, ignoring it.\n",
+                aFields[1].c_str (), aFields[2].c_str ());
+            }
+            else
+            {
+              iSelectedEvent->second.m_IsSelectedByUser = true;
+            }
+          }
+        }
       }
       else
       {
@@ -750,7 +788,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.15 2014/06/19 20:49:22 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.16 2014/06/20 17:22:20 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -927,28 +965,20 @@ void WriteHTMLForm ()
     }
 
     strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
-    snprintf (OutputBuffer, sizeof (OutputBuffer), "%s\t%s\t%s%s\n",
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "%s\t%s\t%s\n",
       TimeString,
       iEvent->second.m_ShowIter->first.c_str(),
-      iEvent->first.m_Venue->first.c_str(),
-      (iEvent->second.m_IsSelectedByUser) ? "\tSelected" : "");
+      iEvent->first.m_Venue->first.c_str());
     EncodeAndPrintText (OutputBuffer);
   }
 
-  // Dump the show states, for the favourite flag, duration if not
-  // default, and the URL.
+  // Dump the show states, for the duration if not
+  // default, and the URL.  Favourites done later to make cutting and pasting easier.
 
   int DefaultShowDuration =
     60 * atoi (g_AllSettings["DefaultShowDuration"].c_str ());
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
   {
-    if (iShow->second.m_IsFavourite)
-    {
-      snprintf (OutputBuffer, sizeof (OutputBuffer),
-        "Favourite\t%s\n", iShow->first.c_str());
-      EncodeAndPrintText (OutputBuffer);
-    }
-
     if (iShow->second.m_ShowDuration != DefaultShowDuration)
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer),
@@ -976,6 +1006,36 @@ void WriteHTMLForm ()
         iVenue->first.c_str(), iVenue->second.m_VenueURL.c_str());
       EncodeAndPrintText (OutputBuffer);
     }
+  }
+
+  // Write out the favourite shows.
+
+  for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
+  {
+    if (iShow->second.m_IsFavourite)
+    {
+      snprintf (OutputBuffer, sizeof (OutputBuffer),
+        "Favourite\t%s\n", iShow->first.c_str());
+      EncodeAndPrintText (OutputBuffer);
+    }
+  }
+
+  // Write out the selected event flags.  Done after the events, so we can cut
+  // and paste in new schedule information without losing our selections.
+
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  {
+    if (!iEvent->second.m_IsSelectedByUser)
+      continue;
+
+    time_t EventTime = iEvent->first.m_EventTime;
+    localtime_r (&EventTime, &BrokenUpDate);
+    strftime (TimeString, sizeof (TimeString), "%c", &BrokenUpDate);
+
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "Selected\t%s\t%s\n",
+      TimeString,
+      iEvent->first.m_Venue->first.c_str());
+    EncodeAndPrintText (OutputBuffer);
   }
 
   printf ("</TEXTAREA>\n");
