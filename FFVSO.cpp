@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.19 2014/06/20 20:01:50 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.20 2014/06/20 20:47:49 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.20  2014/06/20 20:47:49  agmsmith
+ * Sort the events in the big form listing by time and show name, not by
+ * time and venue name.  More convenient for Human readers.
+ *
  * Revision 1.19  2014/06/20 20:01:50  agmsmith
  * Wording.
  *
@@ -310,6 +314,31 @@ FormNameToValuesMap g_FormNameValuePairs;
 
 
 /******************************************************************************
+ * Set up the global list of settings, for things like the HTML strings that
+ * highlight selected items.  They will be overwritten by user provided
+ * settings.
+ */
+
+void InitialiseDefaultSettings ()
+{
+  g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
+  g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.20 2014/06/20 20:47:49 agmsmith Exp agmsmith $";
+  g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
+  g_AllSettings["HTMLConflictEnd"] = "</FONT>";
+  g_AllSettings["HTMLFavouriteBegin"] = "<I>";
+  g_AllSettings["HTMLFavouriteEnd"] = "</I>";
+  g_AllSettings["HTMLSelectBegin"] = "<B>";
+  g_AllSettings["HTMLSelectEnd"] = "</B>";
+  g_AllSettings["DefaultShowDuration"] = "60";
+  g_AllSettings["NewDayGapMinutes"] = "360";
+  g_AllSettings["DefaultTravelTime"] = "10";
+  g_AllSettings["DefaultLineupTime"] = "5";
+  ResetLastUpdateTimeSetting ();
+}
+
+
+/******************************************************************************
  * Convert the given string from Form URL Encoded to plain text.  That means
  * replacing all "%xy" codes (byte hex encoded) with the corresponding hex
  * character, and "+" with a space.  Then run through the text again and
@@ -446,31 +475,6 @@ void ResetLastUpdateTimeSetting ()
   time(&TimeNow);
   BrokenUpTime = localtime (&TimeNow);
   g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
-}
-
-
-/******************************************************************************
- * Set up the global list of settings, for things like the HTML strings that
- * highlight selected items.  They will be overwritten by user provided
- * settings.
- */
-
-void InitialiseDefaultSettings ()
-{
-  g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
-  g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.19 2014/06/20 20:01:50 agmsmith Exp agmsmith $";
-  g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
-  g_AllSettings["HTMLConflictEnd"] = "</FONT>";
-  g_AllSettings["HTMLFavouriteBegin"] = "<I>";
-  g_AllSettings["HTMLFavouriteEnd"] = "</I>";
-  g_AllSettings["HTMLSelectBegin"] = "<B>";
-  g_AllSettings["HTMLSelectEnd"] = "</B>";
-  g_AllSettings["DefaultShowDuration"] = "60";
-  g_AllSettings["NewDayGapMinutes"] = "360";
-  g_AllSettings["DefaultTravelTime"] = "10";
-  g_AllSettings["DefaultLineupTime"] = "5";
-  ResetLastUpdateTimeSetting ();
 }
 
 
@@ -835,7 +839,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.19 2014/06/20 20:01:50 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.20 2014/06/20 20:47:49 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
