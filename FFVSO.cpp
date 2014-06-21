@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.20 2014/06/20 20:47:49 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.21 2014/06/21 14:56:52 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.21  2014/06/21 14:56:52  agmsmith
+ * Move global initialisation earlier in the source code.
+ *
  * Revision 1.20  2014/06/20 20:47:49  agmsmith
  * Sort the events in the big form listing by time and show name, not by
  * time and venue name.  More convenient for Human readers.
@@ -273,11 +276,18 @@ struct StatisticsStruct
   int m_TotalNumberOfEventsScheduled;
     /* Number of events the user is going to see in their schedule. */
 
+  int m_TotalNumberOfRedundantShows;
+    /* Number of shows seen more than once. */
+
+  int m_TotalNumberOfUnseenShows;
+    /* Number of shows never seen. */
+
   int m_TotalSecondsWatched;
     /* How much show watching is the user doing with their schedule? */
 
   StatisticsStruct () : m_TotalNumberOfConflicts(0),
-    m_TotalNumberOfEventsScheduled(0), m_TotalSecondsWatched(0)
+    m_TotalNumberOfEventsScheduled(0), m_TotalNumberOfRedundantShows(0),
+    m_TotalNumberOfUnseenShows(0), m_TotalSecondsWatched(0)
   {};
 
 } g_Statistics;
@@ -314,6 +324,20 @@ FormNameToValuesMap g_FormNameValuePairs;
 
 
 /******************************************************************************
+ * Just set the Setting for the last update time to the current time.
+ */
+
+void ResetLastUpdateTimeSetting ()
+{
+  time_t TimeNow;
+  struct tm *BrokenUpTime;
+  time(&TimeNow);
+  BrokenUpTime = localtime (&TimeNow);
+  g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
+}
+
+
+/******************************************************************************
  * Set up the global list of settings, for things like the HTML strings that
  * highlight selected items.  They will be overwritten by user provided
  * settings.
@@ -321,19 +345,21 @@ FormNameToValuesMap g_FormNameValuePairs;
 
 void InitialiseDefaultSettings ()
 {
-  g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
-  g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.20 2014/06/20 20:47:49 agmsmith Exp agmsmith $";
+  g_AllSettings["HTMLAlreadyPickedBegin"] = "<FONT COLOR=\"SILVER\">";
+  g_AllSettings["HTMLAlreadyPickedEnd"] = "</FONT>";
   g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
   g_AllSettings["HTMLConflictEnd"] = "</FONT>";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
   g_AllSettings["HTMLFavouriteEnd"] = "</I>";
   g_AllSettings["HTMLSelectBegin"] = "<B>";
   g_AllSettings["HTMLSelectEnd"] = "</B>";
-  g_AllSettings["DefaultShowDuration"] = "60";
-  g_AllSettings["NewDayGapMinutes"] = "360";
-  g_AllSettings["DefaultTravelTime"] = "10";
   g_AllSettings["DefaultLineupTime"] = "5";
+  g_AllSettings["DefaultShowDuration"] = "60";
+  g_AllSettings["DefaultTravelTime"] = "10";
+  g_AllSettings["NewDayGapMinutes"] = "360";
+  g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
+  g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.21 2014/06/21 14:56:52 agmsmith Exp agmsmith $";
   ResetLastUpdateTimeSetting ();
 }
 
@@ -461,20 +487,6 @@ void BuildFormNameAndValuePairsFromFormInput ()
       g_FormNameValuePairs.insert (NewPair);
     }
   }
-}
-
-
-/******************************************************************************
- * Just set the Setting for the last update time to the current time.
- */
-
-void ResetLastUpdateTimeSetting ()
-{
-  time_t TimeNow;
-  struct tm *BrokenUpTime;
-  time(&TimeNow);
-  BrokenUpTime = localtime (&TimeNow);
-  g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
 }
 
 
@@ -839,7 +851,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.20 2014/06/20 20:47:49 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.21 2014/06/21 14:56:52 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -861,12 +873,15 @@ void WriteHTMLForm ()
   printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
   printf ("<P ALIGN=\"CENTER\">");
   printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
-    "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A><BR>\n"
-    "You have %d conflicts and are seeing %d performances (total time %d:%02d).\n",
+    "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n"
+    "<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
+    "(total time %d:%02d).<BR>There are %d redundant and %d missing shows.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
-    g_Statistics.m_TotalSecondsWatched / 60 % 60);
+    g_Statistics.m_TotalSecondsWatched / 60 % 60,
+    g_Statistics.m_TotalNumberOfRedundantShows,
+    g_Statistics.m_TotalNumberOfUnseenShows);
   printf ("<P ALIGN=\"CENTER\">");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule with your Changes\">\n");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"See Printable Schedule\">\n");
@@ -916,6 +931,11 @@ void WriteHTMLForm ()
     {
       StartHTML.append (g_AllSettings["HTMLSelectBegin"]);
       EndHTML.insert (0, g_AllSettings["HTMLSelectEnd"]);
+    }
+    else if (iEvent->second.m_ShowIter->second.m_ScheduledCount > 0)
+    {
+      StartHTML.append (g_AllSettings["HTMLAlreadyPickedBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLAlreadyPickedEnd"]);
     }
 
     if (iEvent->second.m_ShowIter->second.m_IsFavourite)
@@ -1169,14 +1189,26 @@ void WritePrintableListing ()
 
   printf ("</TABLE>\n");
 
-  // Print a footer listing the time when the table was printed, so you can
+  // Print a footer with the statistics.
+
+  printf ("<P ALIGN=\"CENTER\">");
+  printf ("<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
+    "(total time %d:%02d).<BR>There are %d redundant and %d missing shows.\n",
+    g_Statistics.m_TotalNumberOfConflicts,
+    g_Statistics.m_TotalNumberOfEventsScheduled,
+    g_Statistics.m_TotalSecondsWatched / 60 / 60,
+    g_Statistics.m_TotalSecondsWatched / 60 % 60,
+    g_Statistics.m_TotalNumberOfRedundantShows,
+    g_Statistics.m_TotalNumberOfUnseenShows);
+
+  // Include the time when the table was printed, so you can
   // tell different versions of the table apart.
 
   time_t CurrentTime;
   time (&CurrentTime);
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
-  printf ("<P><FONT SIZE=\"-2\">Printed on %s.</FONT>\n", TimeString);
+  printf ("<P><FONT SIZE=\"-1\">Printed on %s.</FONT>\n", TimeString);
 }
 
 
@@ -1298,6 +1330,17 @@ void ComputeConflictsAndStatistics ()
     PreviousEventEndTime = iEvent->first.m_EventTime +
       iEvent->second.m_ShowIter->second.m_ShowDuration +
       TimeBetweenEvents;
+  }
+
+  // Count up the shows seen more than once and ones not seen at all.
+
+  ShowIterator iShow;
+  for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
+  {
+    if (iShow->second.m_ScheduledCount > 1)
+      g_Statistics.m_TotalNumberOfRedundantShows++;
+    else if (iShow->second.m_ScheduledCount <= 0)
+      g_Statistics.m_TotalNumberOfUnseenShows++;
   }
 }
 
