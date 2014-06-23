@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.22 2014/06/21 15:22:18 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.23 2014/06/23 03:35:26 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.23  2014/06/23 03:35:26  agmsmith
+ * Wording.
+ *
  * Revision 1.22  2014/06/21 15:22:18  agmsmith
  * Add gray highlighting for shows already picked elsewhere, and keep
  * statistics on redundant and missing shows.
@@ -361,9 +364,9 @@ void InitialiseDefaultSettings ()
   g_AllSettings["DefaultShowDuration"] = "60";
   g_AllSettings["DefaultTravelTime"] = "10";
   g_AllSettings["NewDayGapMinutes"] = "360";
-  g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
-  g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.22 2014/06/21 15:22:18 agmsmith Exp agmsmith $";
+  g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
+  g_AllSettings["TitlePrint"] = "<H1>Title for Your-Printable-Listing goes here</H1>";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.23 2014/06/23 03:35:26 agmsmith Exp agmsmith $";
   ResetLastUpdateTimeSetting ();
 }
 
@@ -855,7 +858,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.22 2014/06/21 15:22:18 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.23 2014/06/23 03:35:26 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
