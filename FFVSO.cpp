@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.21 2014/06/21 14:56:52 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.22 2014/06/21 15:22:18 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.22  2014/06/21 15:22:18  agmsmith
+ * Add gray highlighting for shows already picked elsewhere, and keep
+ * statistics on redundant and missing shows.
+ *
  * Revision 1.21  2014/06/21 14:56:52  agmsmith
  * Move global initialisation earlier in the source code.
  *
@@ -359,7 +363,7 @@ void InitialiseDefaultSettings ()
   g_AllSettings["NewDayGapMinutes"] = "360";
   g_AllSettings["TitleEdit"] = "<H1>Edit Your Schedule title goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Your Printable Listing Title Here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.21 2014/06/21 14:56:52 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.22 2014/06/21 15:22:18 agmsmith Exp agmsmith $";
   ResetLastUpdateTimeSetting ();
 }
 
@@ -851,7 +855,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.21 2014/06/21 14:56:52 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.22 2014/06/21 15:22:18 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -875,7 +879,7 @@ void WriteHTMLForm ()
   printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
     "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n"
     "<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
-    "(total time %d:%02d).<BR>There are %d redundant and %d missing shows.\n",
+    "(total time %d:%02d).<BR>There are %d redundant and %d unseen shows.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
@@ -1193,7 +1197,7 @@ void WritePrintableListing ()
 
   printf ("<P ALIGN=\"CENTER\">");
   printf ("<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
-    "(total time %d:%02d).<BR>There are %d redundant and %d missing shows.\n",
+    "(total time %d:%02d).<BR>There are %d redundant and %d unseen shows.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
