@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.23 2014/06/23 03:35:26 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.24 2014/06/23 16:04:24 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -16,6 +16,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.24  2014/06/23 16:04:24  agmsmith
+ * Wording.
+ *
  * Revision 1.23  2014/06/23 03:35:26  agmsmith
  * Wording.
  *
@@ -266,8 +269,8 @@ EventMap g_AllEvents;
 typedef std::vector<EventIterator> SortedEventVector;
 SortedEventVector g_EventsSortedByTimeAndShow;
   /* A list of all the events sorted by time and show.  The natural order of
-  time and venue just doesn't read right when you're looking through a list,
-  so we'll use this ordering when printing Human readable output. */
+  time and venue just doesn't read right when you're looking through a list, so
+  we'll use this ordering when printing Human readable output. */
 
 
 /******************************************************************************
@@ -360,13 +363,14 @@ void InitialiseDefaultSettings ()
   g_AllSettings["HTMLFavouriteEnd"] = "</I>";
   g_AllSettings["HTMLSelectBegin"] = "<B>";
   g_AllSettings["HTMLSelectEnd"] = "</B>";
+  g_AllSettings["UseOnlyTabForFieldSeparator"] = "0";
   g_AllSettings["DefaultLineupTime"] = "5";
   g_AllSettings["DefaultShowDuration"] = "60";
   g_AllSettings["DefaultTravelTime"] = "10";
   g_AllSettings["NewDayGapMinutes"] = "360";
   g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Title for Your-Printable-Listing goes here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.23 2014/06/23 03:35:26 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.24 2014/06/23 16:04:24 agmsmith Exp agmsmith $";
   ResetLastUpdateTimeSetting ();
 }
 
@@ -535,29 +539,42 @@ void LoadStateInformation (const char *pBuffer)
   time_t RunningDate;
   time (&RunningDate);
 
-  const int MAX_FIELDS = 4;
+  // When reading, always consider tabs to be field separators, and optionally
+  // have '|' vertical bar as a field separator (some web browsers don't
+  // support pasting in text with tabs into a TEXTAREA).  Should be fine so
+  // long as the vertical bar isn't used in Show names or other text, and if
+  // it is a problem, a setting turns off vertical bars.
+
+  bool bOnlyTab = (0 != atoi (
+    g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
+
+  const int MAX_FIELDS = 5;
   std::string aFields[MAX_FIELDS];
 
   const char *pSource = pBuffer;
   while (*pSource != 0)
   {
-    // Starting a new line of text, reset the field markers.
+    // Starting a new line of text, reset the field markers and start hunting
+    // for fields.
 
     int iField;
     for (iField = 0; iField < MAX_FIELDS; iField++)
       aFields[iField].clear();
+
     iField = 0;
-
-    // Start hunting for fields.
-
     char Letter = *pSource;
     while (Letter != 0 && Letter != '\n')
     {
-      while (Letter == ' ') // Skip leading spaces, but not tabs.
+      // Skip leading spaces, and for the first field, also field separators
+      // (in case some e-mail software indented the text with tabs).
+
+      while (Letter == ' ' ||
+      (iField == 0 && (Letter == '\t' || (!bOnlyTab && Letter == '|'))))
         Letter = *++pSource;
       const char *pFieldStart = pSource;
 
-      while (Letter != '\t' && Letter != '\n' && Letter != 0)
+      while (Letter != '\t' && Letter != '\n' && Letter != 0 &&
+      (bOnlyTab || Letter != '|'))
         Letter = *++pSource; // Skip over the contents of the field.
 
       if (iField < MAX_FIELDS)
@@ -572,7 +589,9 @@ void LoadStateInformation (const char *pBuffer)
       }
       iField++;
 
-      if (Letter == '\t') // Leave LF and NUL alone so outer loop exits.
+      // Leave LF and NUL alone (still in Letter) so outer loop exits.
+
+      if (Letter == '\t' || (!bOnlyTab && Letter == '|'))
       {
         Letter = *++pSource;
         pFieldStart = pSource;
@@ -643,7 +662,8 @@ void LoadStateInformation (const char *pBuffer)
           }
         }
       }
-      else if (aFields[0] == "Favourite" && nFields >= 2)
+      else // Don't have a date, look for keywords in the first field.
+      if (aFields[0] == "Favourite" && nFields >= 2)
       {
         // Favourite keyword is followed by a field identifying a show.
 
@@ -656,7 +676,13 @@ void LoadStateInformation (const char *pBuffer)
       }
       else if (aFields[0] == "Setting" && nFields >= 3)
       {
+        // Hopefully the important settings were written near the beginning,
+        // like the one which controls parsing of tabs and vertical bars.
+
         g_AllSettings[aFields[1]] = aFields[2];
+
+        bOnlyTab = (0 != atoi (
+          g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
       }
       else if (aFields[0] == "ShowURL" && nFields >= 3)
       {
@@ -835,7 +861,7 @@ void EncodeAndPrintText (const char *pBuffer)
   }
   *pDest = 0;
 
-  printf ("%s", pOutputBuffer); 
+  printf ("%s", pOutputBuffer);
   delete [] pOutputBuffer;
 }
 
@@ -858,7 +884,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.23 2014/06/23 03:35:26 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.24 2014/06/23 16:04:24 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1026,9 +1052,11 @@ void WriteHTMLForm ()
   printf ("<INPUT TYPE=\"HIDDEN\" NAME=\"LastUpdateTime\" VALUE=\"%s\">\n",
     g_AllSettings["LastUpdateTime"].c_str ());
 
-  // Write out the SavedState giant text area.  To avoid HTML
-  // misinterpretation problems, encode suspect characters for
-  // the data inside the textarea.
+  // Write out the SavedState giant text area.  To avoid HTML misinterpretation
+  // problems, encode suspect characters for the data inside the textarea.
+
+  char Separator = (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].
+    c_str ())) ? '\t' : '|';
 
   printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2>"
     "<P>You can copy this out and save it in a text file to preserve your "
@@ -1043,8 +1071,8 @@ void WriteHTMLForm ()
 
   for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
   {
-    snprintf (OutputBuffer, sizeof (OutputBuffer), "Setting\t%s\t%s\n",
-      iSetting->first.c_str(), iSetting->second.c_str());
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "Setting%c%s%c%s\n",
+      Separator, iSetting->first.c_str(), Separator, iSetting->second.c_str());
     EncodeAndPrintText (OutputBuffer);
   }
 
@@ -1065,9 +1093,9 @@ void WriteHTMLForm ()
     }
 
     strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
-    snprintf (OutputBuffer, sizeof (OutputBuffer), "%s\t%s\t%s\n",
-      TimeString,
-      iEvent->second.m_ShowIter->first.c_str(),
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "%s%c%s%c%s\n",
+      TimeString, Separator,
+      iEvent->second.m_ShowIter->first.c_str(), Separator,
       iEvent->first.m_Venue->first.c_str());
     EncodeAndPrintText (OutputBuffer);
   }
@@ -1082,7 +1110,7 @@ void WriteHTMLForm ()
     if (iShow->second.m_ShowDuration != DefaultShowDuration)
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer),
-        "ShowDuration\t%s\t%d\n", iShow->first.c_str (),
+        "ShowDuration%c%s%c%d\n", Separator, iShow->first.c_str (), Separator,
         iShow->second.m_ShowDuration / 60);
       EncodeAndPrintText (OutputBuffer);
     }
@@ -1090,7 +1118,7 @@ void WriteHTMLForm ()
     if (!iShow->second.m_ShowURL.empty ())
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer),
-        "ShowURL\t%s\t%s\n", iShow->first.c_str(),
+        "ShowURL%c%s%c%s\n", Separator, iShow->first.c_str(), Separator,
         iShow->second.m_ShowURL.c_str());
       EncodeAndPrintText (OutputBuffer);
     }
@@ -1102,8 +1130,9 @@ void WriteHTMLForm ()
   {
     if (!iVenue->second.m_VenueURL.empty ())
     {
-      snprintf (OutputBuffer, sizeof (OutputBuffer), "VenueURL\t%s\t%s\n",
-        iVenue->first.c_str(), iVenue->second.m_VenueURL.c_str());
+      snprintf (OutputBuffer, sizeof (OutputBuffer), "VenueURL%c%s%c%s\n",
+        Separator, iVenue->first.c_str(), Separator,
+        iVenue->second.m_VenueURL.c_str());
       EncodeAndPrintText (OutputBuffer);
     }
   }
@@ -1115,7 +1144,7 @@ void WriteHTMLForm ()
     if (iShow->second.m_IsFavourite)
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer),
-        "Favourite\t%s\n", iShow->first.c_str());
+        "Favourite%c%s\n", Separator, iShow->first.c_str());
       EncodeAndPrintText (OutputBuffer);
     }
   }
@@ -1132,8 +1161,8 @@ void WriteHTMLForm ()
     localtime_r (&EventTime, &BrokenUpDate);
     strftime (TimeString, sizeof (TimeString), "%c", &BrokenUpDate);
 
-    snprintf (OutputBuffer, sizeof (OutputBuffer), "Selected\t%s\t%s\n",
-      TimeString,
+    snprintf (OutputBuffer, sizeof (OutputBuffer), "Selected%c%s%c%s\n",
+      Separator, TimeString, Separator,
       iEvent->first.m_Venue->first.c_str());
     EncodeAndPrintText (OutputBuffer);
   }
@@ -1208,19 +1237,20 @@ void WritePrintableListing ()
     g_Statistics.m_TotalNumberOfRedundantShows,
     g_Statistics.m_TotalNumberOfUnseenShows);
 
-  // Include the time when the table was printed, so you can
-  // tell different versions of the table apart.
+  // Include the time when the table was printed, so you can tell different
+  // versions of the table apart.
 
   time_t CurrentTime;
   time (&CurrentTime);
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
-  printf ("<P><FONT SIZE=\"-1\">Printed on %s.</FONT>\n", TimeString);
+  printf ("<P><FONT SIZE=\"-1\">Printed on %s.  $Revision: $</FONT>\n", TimeString);
 }
 
 
 /******************************************************************************
- * Build a list of all the events sorted by time and show name.
+ * Build a list of all the events sorted by time and show name, a more
+ * convenient order for the user than time and venue name.
  */
 
 bool CompareEventByTimeAndShowName (EventIterator ItemA, EventIterator ItemB)
