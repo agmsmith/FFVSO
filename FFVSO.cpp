@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.25 2014/06/25 21:37:43 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.26  2014/06/26 15:17:54  agmsmith
+ * Include software version in printout.
+ *
  * Revision 1.25  2014/06/25 21:37:43  agmsmith
  * Added vertical bar as a field separator, and a setting to control it.
  *
@@ -339,16 +342,20 @@ FormNameToValuesMap g_FormNameValuePairs;
 
 
 /******************************************************************************
- * Just set the Setting for the last update time to the current time.
+ * Settings which are always updated, overwriting old values from the form.
+ * Set the setting for the last update time to the current time and also update
+ * the software version string.
  */
 
-void ResetLastUpdateTimeSetting ()
+void ResetDynamicSettings ()
 {
   time_t TimeNow;
-  struct tm *BrokenUpTime;
+  struct tm BrokenUpTime;
   time(&TimeNow);
-  BrokenUpTime = localtime (&TimeNow);
-  g_AllSettings["LastUpdateTime"].assign (asctime (BrokenUpTime), 24);
+  localtime_r (&TimeNow, &BrokenUpTime);
+  g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
+
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $";
 }
 
 
@@ -375,8 +382,7 @@ void InitialiseDefaultSettings ()
   g_AllSettings["NewDayGapMinutes"] = "360";
   g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Title for Your-Printable-Listing goes here</H1>";
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.25 2014/06/25 21:37:43 agmsmith Exp agmsmith $";
-  ResetLastUpdateTimeSetting ();
+  ResetDynamicSettings ();
 }
 
 
@@ -889,7 +895,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.25 2014/06/25 21:37:43 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1250,8 +1256,8 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: 1.25 $ "
-    "compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
+    "$Id: FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $ "
+    "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
 
@@ -1485,7 +1491,7 @@ int main (int argc, char **argv)
 
   SortEventsByTimeAndShow ();
   ComputeConflictsAndStatistics ();
-  ResetLastUpdateTimeSetting (); // New form needs new date.
+  ResetDynamicSettings (); // New form needs new date.
 
   if (g_FormNameValuePairs.find (const_cast<char *> ("PrintSchedule")) !=
   g_FormNameValuePairs.end ()) // Was the printable schedule button used?
