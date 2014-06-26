@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.27  2014/06/26 15:27:53  agmsmith
+ * Reset both time and version strings after reading old form data.
+ *
  * Revision 1.26  2014/06/26 15:17:54  agmsmith
  * Include software version in printout.
  *
@@ -355,7 +358,7 @@ void ResetDynamicSettings ()
   localtime_r (&TimeNow, &BrokenUpTime);
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $";
 }
 
 
@@ -895,7 +898,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -935,8 +938,12 @@ void WriteHTMLForm ()
   // show name, venue name, checkbox.
 
   printf ("<H2><A NAME=\"Events\"></A>Listing of %ld Events</H2>\n"
-    "<P>Use the checkboxes to select the ones you want to see, "
-    "then hit the Update Schedule button.\n"
+    "<P>Use the checkboxes to select the events you want to see, then hit the "
+    "Update Schedule button to see if you have conflicts or other problems."
+    "&nbsp; Repeat until you're happy with your schedule, then use the "
+    "Printable Schedule button to get a clean copy.&nbsp; Use your browser's "
+    "Back button to go back to editing after printing.&nbsp; See the Raw Data "
+    "box near the bottom of this page for info about saving your schedule.\n"
     "<P><TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllEvents.size ());
 
   time_t PreviousTime = 0;
@@ -994,6 +1001,28 @@ void WriteHTMLForm ()
       EndHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
     }
 
+    // Also include a URL link with the highlighting, for shows and venues.
+
+    std::string StartShowHTML (StartHTML);
+    std::string EndShowHTML (EndHTML);
+    if (!iEvent->second.m_ShowIter->second.m_ShowURL.empty ())
+    {
+      StartShowHTML.append ("<A HREF=\"");
+      StartShowHTML.append (iEvent->second.m_ShowIter->second.m_ShowURL);
+      StartShowHTML.append ("\">");
+      EndShowHTML.insert (0, "</A>");
+    }
+
+    std::string StartVenueHTML (StartHTML);
+    std::string EndVenueHTML (EndHTML);
+    if (!iEvent->first.m_Venue->second.m_VenueURL.empty ())
+    {
+      StartVenueHTML.append ("<A HREF=\"");
+      StartVenueHTML.append (iEvent->first.m_Venue->second.m_VenueURL);
+      StartVenueHTML.append ("\">");
+      EndVenueHTML.insert (0, "</A>");
+    }
+
     // Dump out the event and a checkbox to change it.
 
     printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
@@ -1001,8 +1030,8 @@ void WriteHTMLForm ()
       "VALUE=\"On\"%s></INPUT></TD></TR>\n",
       StartHTML.c_str(), TimeString, EndHTML.c_str(),
       StartHTML.c_str(), iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
-      StartHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(), EndHTML.c_str(),
-      StartHTML.c_str(), iEvent->first.m_Venue->first.c_str(), EndHTML.c_str(),
+      StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(), EndShowHTML.c_str(),
+      StartVenueHTML.c_str(), iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str(),
       EventTime, iEvent->first.m_Venue->first.c_str(),
       (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
   }
@@ -1019,7 +1048,7 @@ void WriteHTMLForm ()
 
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
   {
-    // Add highlighting for favourite shows.
+    // Add highlighting for favourite shows, and a link to the show's page.
 
     std::string StartHTML;
     std::string EndHTML;
@@ -1030,10 +1059,20 @@ void WriteHTMLForm ()
       EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
     }
 
+    std::string StartShowHTML (StartHTML);
+    std::string EndShowHTML (EndHTML);
+    if (!iShow->second.m_ShowURL.empty ())
+    {
+      StartShowHTML.append ("<A HREF=\"");
+      StartShowHTML.append (iShow->second.m_ShowURL);
+      StartShowHTML.append ("\">");
+      EndShowHTML.insert (0, "</A>");
+    }
+
     printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%d%s</TD>"
       "<TD>%s%d%s</TD><TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Show,%s\" "
       "VALUE=\"On\"%s></INPUT></TD></TR>\n",
-      StartHTML.c_str(), iShow->first.c_str(), EndHTML.c_str(),
+      StartShowHTML.c_str(), iShow->first.c_str(), EndShowHTML.c_str(),
       StartHTML.c_str(), iShow->second.m_ShowDuration / 60, EndHTML.c_str(),
       StartHTML.c_str(), iShow->second.m_EventCount, EndHTML.c_str(),
       StartHTML.c_str(), iShow->second.m_ScheduledCount, EndHTML.c_str(),
@@ -1050,8 +1089,19 @@ void WriteHTMLForm ()
 
   for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
   {
-    printf ("<TR VALIGN=\"TOP\"><TD>%s</TD><TD>%d</TD></TR>\n",
-      iVenue->first.c_str(), iVenue->second.m_EventCount);
+    std::string StartVenueHTML;
+    std::string EndVenueHTML;
+    if (!iVenue->second.m_VenueURL.empty ())
+    {
+      StartVenueHTML.append ("<A HREF=\"");
+      StartVenueHTML.append (iVenue->second.m_VenueURL);
+      StartVenueHTML.append ("\">");
+      EndVenueHTML.insert (0, "</A>");
+    }
+
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%d</TD></TR>\n",
+      StartVenueHTML.c_str (), iVenue->first.c_str(), EndVenueHTML.c_str (),
+      iVenue->second.m_EventCount);
   }
 
   printf ("</TABLE>\n");
@@ -1072,9 +1122,10 @@ void WriteHTMLForm ()
   printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2>"
     "<P>You can copy this out and save it in a text file to preserve your "
     "selections.  Paste it back in later and hit the update button to "
-    "restore your custom schedule.  Also you may be able to paste in event "
-    "listings from the Festival web site to correct the schedule, if they "
-    "have made changes.\n"
+    "restore your custom schedule.  If things go awry (or updated schedule "
+    "times have been posted for your festival), start a fresh session for "
+    "your festival and append just the lines near the end that start with "
+    "\"Selected\".\n"
     "<P><TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
 
   // Dump the settings state.  Do it first so default settings get used when
@@ -1180,6 +1231,18 @@ void WriteHTMLForm ()
 
   printf ("</TEXTAREA>\n");
 
+  printf ("<P>Raw Data keywords and use, in case you're interested in "
+    "details.\n<UL>\n");
+  printf ("<LI>TitleEdit - followed by HTML for the title text shown "
+    "while editing.  Useful for noting the date when the schedule "
+    "times were last updated with data from the festival.\n");
+  printf ("<LI>TitlePrint - followed by HTML for the title text shown "
+    "on the printable listing.  You may want to customise it with your "
+    "own name and other information.\n");
+  printf ("<LI>Setting - followed by a setting name and a value.\n");
+  printf ("<LI>Bleeble - need to finish writing this documentation.\n");
+  printf ("</UL>\n");
+
   printf ("</FORM>\n");
 }
 
@@ -1256,7 +1319,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.26 2014/06/26 15:17:54 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
