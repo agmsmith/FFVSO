@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.29  2014/08/29 17:10:04  agmsmith
+ * Include compile date in the version string global parameter.
+ *
  * Revision 1.28  2014/06/26 20:52:20  agmsmith
  * Now displays show and venue URLs as links.
  *
@@ -153,8 +156,8 @@ SettingMap g_AllSettings;
 
 /******************************************************************************
  * Class which contains information about a single show.  Basically just the
- * title and favourite status, since the show can have multiple venues and
- * times.
+ * title (stored as the key) and favourite status, since the show can have
+ * multiple venues and times.
  */
 
 typedef struct ShowStruct
@@ -303,6 +306,9 @@ struct StatisticsStruct
   int m_TotalNumberOfRedundantShows;
     /* Number of shows seen more than once. */
 
+  int m_TotalNumberOfUnseenFavouriteShows;
+    /* Number of favourite shows never seen. */
+
   int m_TotalNumberOfUnseenShows;
     /* Number of shows never seen. */
 
@@ -311,7 +317,8 @@ struct StatisticsStruct
 
   StatisticsStruct () : m_TotalNumberOfConflicts(0),
     m_TotalNumberOfEventsScheduled(0), m_TotalNumberOfRedundantShows(0),
-    m_TotalNumberOfUnseenShows(0), m_TotalSecondsWatched(0)
+    m_TotalNumberOfUnseenFavouriteShows(0), m_TotalNumberOfUnseenShows(0),
+    m_TotalSecondsWatched(0)
   {};
 
 } g_Statistics;
@@ -362,7 +369,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -526,7 +533,7 @@ void BuildFormNameAndValuePairsFromFormInput ()
  * web page (http://ottawafringe.com/schedule/), which has lines listing each
  * time/show/venue separted by days of the week subtitles.  Conveniently it's a
  * table so when you copy the text out, the fields are separated by tab
- * charaters.
+ * characters.
  *
  * We look for a time or keyword first.  If it's just a date (no more tab
  * separated fields after it) then it becomes the current default date.  If
@@ -534,16 +541,25 @@ void BuildFormNameAndValuePairsFromFormInput ()
  * If it's a time with three or more fields in total, then it's an event, where
  * the first field is the time (combine with the default date to get an
  * absolute time), the second field is the show name and the third is the venue
- * name, and the fourth is the selected flag ("Selected" to pick the event,
- * anything else or missing to not pick it).
+ * name, and the fourth is the optional selected flag ("Selected" to pick the
+ * event, anything else or missing to not pick it).
  *
  * The keywords are used for storing extra information.  They are:
  *   "Favourite" with the second field being the show name.  That show is then
  *      marked as being one of the higher priority ones for the user to see.
+ *   "Setting" followed by the name of the setting and the string value of that
+ *     setting.  The global g_AllSettings will be updated with that name/value.
  *   "ShowURL" has a second field that names a show and a third that specifies
  *     a web link to show information about the show.
+ *   "ShowDuration" is followed by the show name and the duration (number of
+ *     minutes) of that show.  If not specified, a default (usually one hour,
+ *     there's a setting for it) is used.
  *   "VenueURL" second field names a venue, third has the URL for information
  *     about it.
+ *   "Selected" is followed by a date & time string, and then the name of a
+ *     venue.  That specifies an event the user will be attending, and is the
+ *     preferred way of marking events rather than the old "Selected" after the
+ *     event definition way.
  */
 
 void LoadStateInformation (const char *pBuffer)
@@ -637,8 +653,9 @@ void LoadStateInformation (const char *pBuffer)
 
         RunningDate = NewDate;
 
-        // Load an event, if we have enough fields to define one.  Need show
-        // and venue after the date field.  Otherwise it's just a date update.
+        // Load an event, if we have enough fields to define one, otherwise
+        // it's just a date update.  Need show and venue after the date field,
+        // and optionally "Selected" for backwards compatibility reasons.
 
         if (nFields >= 3)
         {
@@ -903,7 +920,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -927,12 +944,14 @@ void WriteHTMLForm ()
   printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
     "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n"
     "<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
-    "(total time %d:%02d).<BR>There are %d redundant and %d unseen shows.\n",
+    "(total time %d:%02d).\n"
+    "<BR>There are %d redundant, %d unseen favourites, and %d unseen shows.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
     g_Statistics.m_TotalSecondsWatched / 60 % 60,
     g_Statistics.m_TotalNumberOfRedundantShows,
+    g_Statistics.m_TotalNumberOfUnseenFavouriteShows,
     g_Statistics.m_TotalNumberOfUnseenShows);
   printf ("<P ALIGN=\"CENTER\">");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule with your Changes\">\n");
@@ -1236,17 +1255,44 @@ void WriteHTMLForm ()
 
   printf ("</TEXTAREA>\n");
 
-  printf ("<P>Raw Data keywords and use, in case you're interested in "
-    "details.\n<UL>\n");
+
+  printf ("<H3>Raw Data Keywords and Use</H3>\n");
+  printf ("<P>Here's some documentation, in case you're interested in "
+    "details.  In general fields are separated by tabs or vertical bar \"|\" "
+    "characters.  The first field specifies what to do with the rest of the "
+    "line of raw data.  Here's the list of possibilities:\n<UL>\n");
+  printf ("<LI>An event is defined by a date and time field followed by a "
+    "show name field and then a venue name field.  There's an optional and "
+    "obsolete fourth field of \"Selected\" to show that the user is going to "
+    "that event.  You can also specify a date by itself (such as \"Thursday, "
+    "June 19, 2014\"), which will be used as the day for the event "
+    "definitions after it (they then only need to specify the time).\n");
+  printf ("<LI>\"Favourite\" is followed by the show name.  That show is then "
+    "marked as being one of the higher priority ones for the user to see.\n");
+  printf ("<LI>\"ShowURL\" has a second field that names a show and a third "
+    "that specifies a web link to show information about the show.\n");
+  printf ("<LI>\"ShowDuration\" is followed by the show name and the duration "
+    "(number of minutes) of that show.  If not specified, a default (usually "
+    "one hour, there's a setting for it) is used.\n");
+  printf ("<LI>\"VenueURL\" is followed by the name of a venue and then the "
+    "URL for information about that venue.\n");
+  printf ("<LI>\"Selected\" is followed by a date & time field, and a field "
+    "naming the venue.  That specifies an event the user will be attending, "
+    "and is the preferred way of selecting events rather than the old "
+    "\"Selected\" after the event definition way (easier for the user to cut "
+    "and paste).\n");
+  printf ("<LI>\"Setting\" is followed by the name of the setting and then "
+    "a field with the value to be used for that setting.  Here are some of "
+    "the settings you can use:\n<UL>\n");
   printf ("<LI>TitleEdit - followed by HTML for the title text shown "
     "while editing.  Useful for noting the date when the schedule "
     "times were last updated with data from the festival.\n");
   printf ("<LI>TitlePrint - followed by HTML for the title text shown "
     "on the printable listing.  You may want to customise it with your "
     "own name and other information.\n");
-  printf ("<LI>Setting - followed by a setting name and a value.\n");
   printf ("<LI>Bleeble - need to finish writing this documentation.\n");
-  printf ("</UL>\n");
+
+  printf ("</UL></UL>\n");
 
   printf ("</FORM>\n");
 }
@@ -1308,12 +1354,13 @@ void WritePrintableListing ()
 
   printf ("<P ALIGN=\"CENTER\">");
   printf ("<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
-    "(total time %d:%02d).<BR>There are %d redundant and %d unseen shows.\n",
+    "(total time %d:%02d).<BR>There are %d redundant, %d unseen favourites and %d unseen shows.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
     g_Statistics.m_TotalSecondsWatched / 60 % 60,
     g_Statistics.m_TotalNumberOfRedundantShows,
+    g_Statistics.m_TotalNumberOfUnseenFavouriteShows,
     g_Statistics.m_TotalNumberOfUnseenShows);
 
   // Include the time when the table was printed, so you can tell different
@@ -1324,7 +1371,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -1458,7 +1505,12 @@ void ComputeConflictsAndStatistics ()
     if (iShow->second.m_ScheduledCount > 1)
       g_Statistics.m_TotalNumberOfRedundantShows++;
     else if (iShow->second.m_ScheduledCount <= 0)
+    {
       g_Statistics.m_TotalNumberOfUnseenShows++;
+
+      if (iShow->second.m_IsFavourite)
+        g_Statistics.m_TotalNumberOfUnseenFavouriteShows++;
+    }
   }
 }
 
