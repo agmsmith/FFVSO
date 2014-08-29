@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.28  2014/06/26 20:52:20  agmsmith
+ * Now displays show and venue URLs as links.
+ *
  * Revision 1.27  2014/06/26 15:27:53  agmsmith
  * Reset both time and version strings after reading old form data.
  *
@@ -358,7 +361,9 @@ void ResetDynamicSettings ()
   localtime_r (&TimeNow, &BrokenUpTime);
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
-  g_AllSettings["Version"] = "$Id: FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $";
+  g_AllSettings["Version"] =
+    "$Id: FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $ "
+    "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
 
@@ -898,7 +903,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1319,7 +1324,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.27 2014/06/26 15:27:53 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.28 2014/06/26 20:52:20 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
