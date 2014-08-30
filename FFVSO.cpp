@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.30  2014/08/29 18:55:54  agmsmith
+ * Updated documentation, count number of unseen favourite shows.
+ *
  * Revision 1.29  2014/08/29 17:10:04  agmsmith
  * Include compile date in the version string global parameter.
  *
@@ -201,21 +204,33 @@ ShowMap g_AllShows;
  * venue name (which is also the key).
  */
 
-typedef struct VenueStruct
+typedef struct VenueStruct VenueRecord, *VenuePointer;
+typedef std::map<std::string, VenueRecord> VenueMap;
+typedef VenueMap::iterator VenueIterator;
+
+struct VenueStruct
 {
   int m_EventCount;
     /* Number of performances at this venue. */
 
+  VenueIterator m_TraveledFromVenue;
+    /* Used for finding the shortest path between venues.  This is the prior
+    venue on the path from the origin to this venue (to find the path, you
+    have to trace backwards from wherever to the origin).  Undefined if no
+    paths have reached this venue yet (m_TravelTimeToHere is -1). */
+
+  int m_TravelTimeToHere;
+    /* Used for finding the shortest path between venues.  This is the
+    currently best time (in seconds) it takes to get to this venue from the
+    origin venue.  Set to -1 if this venue hasn't been reached yet. */
+
   std::string m_VenueURL;
     /* A link to a web page about the venue. */
 
-  VenueStruct () : m_EventCount(0)
+  VenueStruct () : m_EventCount(0), m_TravelTimeToHere(-1)
   {};
 
-} VenueRecord, *VenuePointer;
-
-typedef std::map<std::string, VenueRecord> VenueMap;
-typedef VenueMap::iterator VenueIterator;
+};
 
 VenueMap g_AllVenues;
   /* A collection of all the venues. */
@@ -267,7 +282,14 @@ typedef struct EventStruct
 
   bool m_IsConflicting;
     /* Conflicts with some other show, will be drawn in red or highlighted in
-    some way.  All shows involved in the conflict will have this flag set. */
+    some way.  Shows where their start time is too early (before the time it
+    takes the previous show to finish plus the time it takes for the user to
+    walk to the next venue) will have this flag set.  Thus the first show in a
+    conflict won't have the flag set but the second one will (because you can
+    see the first show but you'll miss part of the second show).  Multishow
+    conflicts are ignored, so if one show is really long and conflicts with
+    several following shows, only the show immediately following it will be
+    checked for conflicts. */
 
   ShowIterator m_ShowIter;
     /* Identifies the show that is being performed at this place and time. */
@@ -369,7 +391,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -920,7 +942,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1371,7 +1393,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.29 2014/08/29 17:10:04 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -1461,9 +1483,11 @@ void ComputeConflictsAndStatistics ()
   /* Look for conflicts, where the start time of a show is inside the time
   range of the previous show (including the time it takes to walk between
   venues and the time it takes to wait in line to buy tickets).  Fortunately
-  the events are already sorted by start time.  Future feature: do a path
-  search through the time it takes to go from one venue to another to find a
-  path between any two venues and the corresponding time. */
+  the events are already sorted by start time.  Only consider adjacent shows,
+  don't worry about a really long show that overlaps multiple following
+  shows.  Future feature: do a path search through the time it takes to go
+  from one venue to another to find a path between any two venues and the
+  corresponding time. */
 
   int TimeBetweenEvents = // Currently the same for all venues.
     atoi (g_AllSettings["DefaultTravelTime"].c_str ()) * 60 +
@@ -1483,12 +1507,6 @@ void ComputeConflictsAndStatistics ()
 
       iEvent->second.m_IsConflicting = true;
       g_Statistics.m_TotalNumberOfConflicts++;
-
-      if (!iPreviousEvent->second.m_IsConflicting)
-      {
-        iPreviousEvent->second.m_IsConflicting = true;
-        g_Statistics.m_TotalNumberOfConflicts++;
-      }
     }
 
     iPreviousEvent = iEvent;
