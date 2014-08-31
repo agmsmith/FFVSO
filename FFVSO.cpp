@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.31 2014/08/30 21:24:18 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.31  2014/08/30 21:24:18  agmsmith
+ * Only have one conflict for two shows overlapping - you can still see the
+ * first show without problems, so only mark the following one in red.
+ *
  * Revision 1.30  2014/08/29 18:55:54  agmsmith
  * Updated documentation, count number of unseen favourite shows.
  *
@@ -201,39 +205,93 @@ ShowMap g_AllShows;
 
 /******************************************************************************
  * Class which contains information about a single venue.  Essentially just the
- * venue name (which is also the key).
+ * venue name (which is also the key).  Typedefs in an unusual position to
+ * handle a recursive definition where the venue record contains an iterator
+ * which points to a venue record.
  */
 
 typedef struct VenueStruct VenueRecord, *VenuePointer;
 typedef std::map<std::string, VenueRecord> VenueMap;
 typedef VenueMap::iterator VenueIterator;
 
+typedef struct TravelTimeStruct TravelTimeRecord, *TravelTimePointer;
+typedef std::map<VenueIterator, TravelTimeRecord> TravelTimeMap;
+typedef TravelTimeMap::iterator TravelTimeIterator;
+
 struct VenueStruct
 {
   int m_EventCount;
     /* Number of performances at this venue. */
 
-  VenueIterator m_TraveledFromVenue;
+  VenueIterator m_PathSearchTravelledFromVenue;
     /* Used for finding the shortest path between venues.  This is the prior
     venue on the path from the origin to this venue (to find the path, you
     have to trace backwards from wherever to the origin).  Undefined if no
-    paths have reached this venue yet (m_TravelTimeToHere is -1). */
+    paths have reached this venue yet (m_PathSearchTravelTimeToHere is -1). */
 
-  int m_TravelTimeToHere;
+  int m_PathSearchTravelTimeToHere;
     /* Used for finding the shortest path between venues.  This is the
     currently best time (in seconds) it takes to get to this venue from the
     origin venue.  Set to -1 if this venue hasn't been reached yet. */
 
+  TravelTimeMap m_TravelTimesToOtherPlaces;
+    /* A collection of travel times to all other venues which can be reached
+    from this venue, indexed by the destination venue.  Specified by user
+    data.  Used during path finding to see where you can go from this venue,
+    and how long it takes. */
+
   std::string m_VenueURL;
     /* A link to a web page about the venue. */
 
-  VenueStruct () : m_EventCount(0), m_TravelTimeToHere(-1)
+  VenueStruct () : m_EventCount(0), m_PathSearchTravelTimeToHere(-1)
   {};
 
 };
 
 VenueMap g_AllVenues;
   /* A collection of all the venues. */
+
+
+/******************************************************************************
+ * Class which contains information about travel time between venues.  Used
+ * for finding the shortest path between venues.  You can think of these
+ * records as being traversable edges in the graph of all venues.  The From
+ * venue is implied by the VenueRecord which contains a collection (member
+ * m_TravelTimesToOtherPlaces) of these TravelTimeRecords.
+ */
+
+struct TravelTimeStruct
+{
+  VenueIterator m_ToVenue;
+    /* The travel direction is from one venue to another.  The reverse
+    direction is specified (if it exists) by another TravelTimeRecord for the
+    opposite venue order. */
+
+  bool m_IsPhantomReverse;
+    /* Usually we can assume there is a reverse direction, so if the user
+    didn't specify a reverse entry, we create one in a post processing stage.
+    It's marked as being a phantom so it doesn't get saved out with the user's
+    data.  For a one way path, the user has to specify a large number of
+    seconds for the wrong direction. */
+
+  int m_DistanceInMeters;
+    /* The distance between the two venues in meters, which will be combined
+    with the user's walking speed to get the time it takes them to walk. */
+
+  int m_WorstCaseDelaySeconds;
+    /* The typical worst case delay in going between the two venues.  This
+    counts the time (in seconds) that you have to wait for traffic lights,
+    elevators and so on.  Measured from the just-missed-the-light time to the
+    next time it turns green.  Elevators measured by sending the elevator to
+    the furthest floor and seeing how long it takes to come back.  Though in
+    reality, the people taking the elevator can slow it down even more than
+    that worst case time. */
+
+  TravelTimeStruct () : m_IsPhantomReverse(false), m_DistanceInMeters(0),
+    m_WorstCaseDelaySeconds(0)
+  {
+  };
+};
 
 
 /******************************************************************************
@@ -354,8 +412,8 @@ struct StatisticsStruct
 char *g_InputFormText;
   /* The state of the form on the web page, as received from the web browser
   POST command's encoded data.  Will be overwritten with the equivalent decoded
-  text and that's then referenced by the collection of form name and value
-  pairs. */
+  text and those in-place strings are then referenced by the collection of
+  form name and value pairs. */
 
 struct CompareCharStruct
 {
@@ -391,7 +449,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.31 2014/08/30 21:24:18 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -566,22 +624,8 @@ void BuildFormNameAndValuePairsFromFormInput ()
  * name, and the fourth is the optional selected flag ("Selected" to pick the
  * event, anything else or missing to not pick it).
  *
- * The keywords are used for storing extra information.  They are:
- *   "Favourite" with the second field being the show name.  That show is then
- *      marked as being one of the higher priority ones for the user to see.
- *   "Setting" followed by the name of the setting and the string value of that
- *     setting.  The global g_AllSettings will be updated with that name/value.
- *   "ShowURL" has a second field that names a show and a third that specifies
- *     a web link to show information about the show.
- *   "ShowDuration" is followed by the show name and the duration (number of
- *     minutes) of that show.  If not specified, a default (usually one hour,
- *     there's a setting for it) is used.
- *   "VenueURL" second field names a venue, third has the URL for information
- *     about it.
- *   "Selected" is followed by a date & time string, and then the name of a
- *     venue.  That specifies an event the user will be attending, and is the
- *     preferred way of marking events rather than the old "Selected" after the
- *     event definition way.
+ * The keywords are used for storing extra information.  See near the end of
+ * WriteHTMLForm() for their documentation.
  */
 
 void LoadStateInformation (const char *pBuffer)
@@ -942,7 +986,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.31 2014/08/30 21:24:18 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1298,6 +1342,41 @@ void WriteHTMLForm ()
     "one hour, there's a setting for it) is used.\n");
   printf ("<LI>\"VenueURL\" is followed by the name of a venue and then the "
     "URL for information about that venue.\n");
+  printf ("<LI>\"TravelTime\" is followed by a field naming the From venue "
+    "and then a field with the To venue, then the distance in metres, and "
+    "then the worst case delay time in seconds.  This is used for calculating "
+    "the shortest path between venues and the time it takes to walk it, which "
+    "is then used for detecting shows you can't get to in time.<P>The user's "
+    "walking speed setting will be combined with the distance to get their "
+    "walking time.  The worst case delay time is added to the walking time to "
+    "get the time it takes to travel between venues.  If we can't find a path "
+    "between the venues, the DefaultTravelTime setting is used for the travel "
+    "time instead.  The setting for time spent in line-ups getting tickets is "
+    "added to the travel time to get the total time to go between venues.  If "
+    "a show starts before you can get to it from the previous show, it will "
+    "be displayed (usually in red) as a conflict.<P>You don't have to specify "
+    "every possible path when setting up your Festival; the shortest path "
+    "composed from multiple TravelTime segments will be found.  A rough grid "
+    "of TravelTime segments covering the Festival's area will be sufficient.  "
+    "If you don't specify a TravelTime in the opposite direction, the reverse "
+    "direction will be assumed to take as long to travel.  If there's a "
+    "one-way path for some reason, you have to specify that there's no "
+    "reverse direction by putting in a TravelTime entry for the reverse "
+    "direction with a negative distance (-1 is good).<P>The worst case delay "
+    "time measures the time spent waiting at traffic lights, elevators and so "
+    "on.  Measure the time from when the light stops being green (as if you "
+    "just missed it) to the next time it turns green.  Elevator worst case "
+    "time is measured by sending the elevator to the furthest floor and "
+    "seeing how long it takes to go and return.  Though crowded elevators "
+    "take longer than that, so maybe measuring on a busy day would be "
+    "better.  For bus, subways, car and other vehicular travel limited by a "
+    "schedule or speed limits (all cars go about the same speed), include "
+    "the vehicular travel time and waiting time at the bus stop/station in "
+    "the worst case delay time and only count the distance walked to the bus "
+    "stop, station or parked car in the distance measurement.<P>Bicycle "
+    "travel would be somewhat complicated (are they walking or biking indoors "
+    "or both?), so we currently don't handle it, though you can approximate "
+    "it with a very fast walking speed setting.\n");
   printf ("<LI>\"Selected\" is followed by a date & time field, and a field "
     "naming the venue.  That specifies an event the user will be attending, "
     "and is the preferred way of selecting events rather than the old "
@@ -1393,7 +1472,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.30 2014/08/29 18:55:54 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.31 2014/08/30 21:24:18 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
