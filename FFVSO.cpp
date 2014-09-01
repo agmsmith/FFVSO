@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.34  2014/09/01 00:44:28  agmsmith
+ * Allow URLs for non-existent venues, so we can have street corners
+ * with URLs for path finding purposes.
+ *
  * Revision 1.33  2014/09/01 00:26:10  agmsmith
  * Now loads, stores and saves the TravelTime information.
  *
@@ -483,7 +487,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1073,7 +1077,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1258,11 +1262,13 @@ void WriteHTMLForm ()
 
   printf ("</TABLE>\n");
 
-  // Write out a list of the venues.  Includes venue name, #performances.
+  // Write out a list of the venues.  Includes venue name, #performances and
+  // count of paths (so you can find junk Venue names).
 
   printf ("<H2><A NAME=\"Venues\"></A>Listing of %ld Venues</H2><P>"
     "<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllVenues.size ());
-  printf ("<TR><TH>Venue Name</TH><TH>Perform-<BR>ances</TH></TR>\n");
+  printf ("<TR><TH>Venue Name</TH><TH>Perform-<BR>ances</TH>"
+    "<TH>Travel<BR>Time<BR>Entries</TH></TR>\n");
 
   for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
   {
@@ -1276,9 +1282,10 @@ void WriteHTMLForm ()
       EndVenueHTML.insert (0, "</A>");
     }
 
-    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%d</TD></TR>\n",
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%d</TD><TD>%d</TD></TR>\n",
       StartVenueHTML.c_str (), iVenue->first.c_str(), EndVenueHTML.c_str (),
-      iVenue->second.m_EventCount);
+      iVenue->second.m_EventCount,
+      (int) iVenue->second.m_TravelTimesToOtherPlaces.size ());
   }
 
   printf ("</TABLE>\n");
@@ -1620,7 +1627,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -1679,6 +1686,57 @@ void SortEventsByTimeAndShow ()
   std::sort (g_EventsSortedByTimeAndShow.begin (),
     g_EventsSortedByTimeAndShow.end (),
     CompareEventByTimeAndShowName);
+}
+
+
+/******************************************************************************
+ * Generate the phantom reverse travel times for all the ones the user has
+ * specified which don't already have a reverse direction entry.
+ */
+
+void GeneratePhantomReverseTravelTimes ()
+{
+  VenueIterator iFromVenue, iFromVenueEnd;
+  TravelTimeIterator iToVenueTravelTime, iToVenueTravelTimeEnd;
+
+  iFromVenueEnd = g_AllVenues.end ();
+  for (iFromVenue = g_AllVenues.begin (); iFromVenue != iFromVenueEnd;
+  iFromVenue++)
+  {
+    iToVenueTravelTimeEnd =
+      iFromVenue->second.m_TravelTimesToOtherPlaces.end ();
+    for (iToVenueTravelTime =
+    iFromVenue->second.m_TravelTimesToOtherPlaces.begin ();
+    iToVenueTravelTime != iToVenueTravelTimeEnd; iToVenueTravelTime++)
+    {
+      if (iToVenueTravelTime->second.m_IsPhantomReverse)
+        continue; // Don't make phantoms from phantoms.
+
+      VenueIterator iReverseFromVenue, iReverseToVenue;
+
+      iReverseFromVenue = iToVenueTravelTime->first;
+      iReverseToVenue = iFromVenue;
+
+      // See if the reverse direction TravelTime entry exists.
+
+      TravelTimeIterator iReverseTravelTime = iReverseFromVenue->
+        second.m_TravelTimesToOtherPlaces.find (iReverseToVenue);
+      if (iReverseTravelTime ==
+      iReverseFromVenue->second.m_TravelTimesToOtherPlaces.end ())
+      {
+        // Not there, make a phantom reverse travel time record.
+
+        TravelTimeRecord NewTravelTime (iToVenueTravelTime->second);
+        NewTravelTime.m_IsPhantomReverse = true;
+
+        TravelTimeMap::value_type NewTravelTimePair (
+          iReverseToVenue, NewTravelTime);
+
+        iReverseFromVenue->second.m_TravelTimesToOtherPlaces.insert
+          (NewTravelTimePair);
+      }
+    }
+  }
 }
 
 
@@ -1855,6 +1913,7 @@ int main (int argc, char **argv)
   }
 
   SortEventsByTimeAndShow ();
+  GeneratePhantomReverseTravelTimes ();
   ComputeConflictsAndStatistics ();
   ResetDynamicSettings (); // New form needs new date.
 
