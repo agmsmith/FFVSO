@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.32 2014/08/31 20:34:51 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.33  2014/09/01 00:26:10  agmsmith
+ * Now loads, stores and saves the TravelTime information.
+ *
  * Revision 1.32  2014/08/31 20:34:51  agmsmith
  * Mostly writing docs for TravelTime.
  *
@@ -480,7 +483,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.32 2014/08/31 20:34:51 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -837,12 +840,11 @@ void LoadStateInformation (const char *pBuffer)
       }
       else if (aFields[0] == "VenueURL" && nFields >= 3)
       {
-        VenueIterator iVenue = g_AllVenues.find (aFields[1]);
-        if (iVenue != g_AllVenues.end ())
-          iVenue->second.m_VenueURL.assign (aFields[2]);
-        else
-          printf ("<P><B>Unknown venue name</B> \"%s\" after VenueURL "
-            "keyword, ignoring it.\n", aFields[1].c_str ());
+        // If the venue isn't found, create a default record for it,
+        // so non-show venues (street corners used in path finding) can
+        // have a URL too.
+
+        g_AllVenues[aFields[1]].m_VenueURL.assign (aFields[2]);
       }
       else if (aFields[0] == "TravelTime" && nFields >= 4)
       {
@@ -1071,7 +1073,7 @@ void WriteHTMLHeader ()
 "<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
 "theatre performances so that you don't miss the shows you want, and to pack "
 "in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.32 2014/08/31 20:34:51 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1365,6 +1367,8 @@ void WriteHTMLForm ()
 
   for (iVenue = g_AllVenues.begin(); iVenue != g_AllVenues.end(); ++iVenue)
   {
+    // List the venue's URL string, if present.
+
     if (!iVenue->second.m_VenueURL.empty ())
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer), "VenueURL%c%s%c%s\n",
@@ -1616,7 +1620,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.32 2014/08/31 20:34:51 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.33 2014/09/01 00:26:10 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
