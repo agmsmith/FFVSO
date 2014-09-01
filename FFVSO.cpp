@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,10 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.35  2014/09/01 18:18:32  agmsmith
+ * Generate the phantom TravelTime entries, and count them in the venue
+ * listing.
+ *
  * Revision 1.34  2014/09/01 00:44:28  agmsmith
  * Allow URLs for non-existent venues, so we can have street corners
  * with URLs for path finding purposes.
@@ -151,6 +155,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -200,6 +205,10 @@ typedef struct ShowStruct
 
   ShowStruct () : m_EventCount(0), m_IsFavourite(false), m_ScheduledCount(0)
   {
+    // Can't use g_CommonUserSettings.m_DefaultShowDuration since this is
+    // called while reading in data; the common settings are only set up after
+    // all the reading has been done.
+
     m_ShowDuration = 60 *
       atoi (g_AllSettings["DefaultShowDuration"].c_str ());
   };
@@ -273,6 +282,7 @@ typedef struct TravelTimeStruct TravelTimeRecord, *TravelTimePointer;
 typedef struct VenueStruct VenueRecord, *VenuePointer;
 typedef std::map<std::string, VenueRecord> VenueMap;
 typedef VenueMap::iterator VenueIterator;
+typedef std::vector<VenueIterator> PathVector;
 
 struct TravelTimeVenueComparator {
   bool operator() (
@@ -390,7 +400,15 @@ typedef struct EventStruct
   ShowIterator m_ShowIter;
     /* Identifies the show that is being performed at this place and time. */
 
-  EventStruct () : m_IsSelectedByUser(false), m_IsConflicting(false)
+  PathVector m_PathToNextEvent;
+    /* A list of venues giving the shortest path to the next event. */
+
+  int m_TravelTimeToNextEvent;
+    /* How long does it take to traverse that path?  Doesn't include time
+    spent waiting in line for tickets. */
+
+  EventStruct () : m_IsSelectedByUser(false), m_IsConflicting(false),
+    m_TravelTimeToNextEvent(-1)
   {};
 
 } EventRecord, *EventPointer;
@@ -443,6 +461,34 @@ struct StatisticsStruct
 
 
 /******************************************************************************
+ * A collection of global level copies of user settings.
+ */
+
+struct CommonUserSettingsStruct
+{
+  bool m_OnlyTab;
+    /* Use only the tab character when reading or writing saved state data.
+    If false then the vertical bar is also acceptable on input and will be
+    used on output. */
+
+  int m_LineupTime;
+    /* Number of seconds spent waiting in line to buy tickets, converted from
+    the user setting.  Assumed to be the same at all venues. */
+
+  int m_DefaultShowDuration;
+    /* Duration of a show if not otherwise specified, converted from the user
+    setting to be in seconds. */
+
+  int m_DefaultTravelTime;
+    /* Time to travel between venues, in seconds, if no path exists. */
+
+  double m_WalkingSpeed;
+    /* Walking speed from the user setting, converted to metres per second. */
+
+} g_CommonUserSettings;
+
+
+/******************************************************************************
  * Input form data storage.  This is the form data submitted by clicking on the
  * Update Schedule button on the web page.
  */
@@ -487,7 +533,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -512,9 +558,11 @@ void InitialiseDefaultSettings ()
   g_AllSettings["DefaultLineupTime"] = "5";
   g_AllSettings["DefaultShowDuration"] = "60";
   g_AllSettings["DefaultTravelTime"] = "10";
+  g_AllSettings["WalkingSpeed km/h"] = "2";
   g_AllSettings["NewDayGapMinutes"] = "360";
   g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
   g_AllSettings["TitlePrint"] = "<H1>Title for Your-Printable-Listing goes here</H1>";
+
   ResetDynamicSettings ();
 }
 
@@ -1012,6 +1060,60 @@ void ReadFormControls ()
 
 
 /******************************************************************************
+ * Make sure the user settings aren't crazy.  Fix them if so.  Also cache
+ * converted values in a global.
+ */
+
+void ValidateUserSettings ()
+{
+  char TempString[80];
+
+  g_CommonUserSettings.m_OnlyTab = 
+    (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
+  g_AllSettings["UseOnlyTabForFieldSeparator"].assign (
+    g_CommonUserSettings.m_OnlyTab ? "1" : "0");
+
+  g_CommonUserSettings.m_LineupTime =
+    60 * atoi (g_AllSettings["DefaultLineupTime"].c_str ());
+  if (g_CommonUserSettings.m_LineupTime < 0)
+  {
+    g_CommonUserSettings.m_LineupTime = 0;
+    g_AllSettings["DefaultLineupTime"].assign ("0");
+  }
+
+  g_CommonUserSettings.m_DefaultShowDuration =
+    60 * atoi (g_AllSettings["DefaultShowDuration"].c_str ());
+  if (g_CommonUserSettings.m_DefaultShowDuration < 0)
+  {
+    g_CommonUserSettings.m_DefaultShowDuration = 0;
+    g_AllSettings["DefaultShowDuration"].assign ("0");
+  }
+
+  g_CommonUserSettings.m_DefaultTravelTime =
+    60 * atoi (g_AllSettings["DefaultTravelTime"].c_str ());
+  if (g_CommonUserSettings.m_DefaultTravelTime < 0)
+  {
+    g_CommonUserSettings.m_DefaultTravelTime = 0;
+    g_AllSettings["DefaultTravelTime"].assign ("0");
+  }
+
+  g_CommonUserSettings.m_WalkingSpeed =
+    atof (g_AllSettings["WalkingSpeed km/h"].c_str ());
+
+  if (g_CommonUserSettings.m_WalkingSpeed <= 0.0)
+    g_CommonUserSettings.m_WalkingSpeed = 2.0;
+  else if (g_CommonUserSettings.m_WalkingSpeed > 1079252848.8)
+    g_CommonUserSettings.m_WalkingSpeed = 1079252848.8; // Speed of light.
+
+  sprintf (TempString, "%0.1f", g_CommonUserSettings.m_WalkingSpeed);
+  g_AllSettings["WalkingSpeed km/h"].assign (TempString);
+
+  // Convert walking speed to metres per second.
+  g_CommonUserSettings.m_WalkingSpeed *= 1000.0 / 60.0 / 60.0;
+}
+
+
+/******************************************************************************
  * Prints the given string to standard output, converting special characters
  * into their HTML encoded equivalents.  Ampersand becomes "&amp;", tab becomes
  * "&#9;", less than and greater than are also encoded.  This should help with
@@ -1060,8 +1162,56 @@ void EncodeAndPrintText (const char *pBuffer)
 
 
 /******************************************************************************
- * Write the output web page, which dumps the current state of everything into
- * various form fields so that the user can change it.
+ * Pretty print a path (a sequence of venues) to a string.
+ */
+
+void WritePathToString (PathVector &Path, std::string &ResultString)
+{
+  char TempString [80];
+
+  ResultString.assign ("Path: ");
+
+  int iPath;
+  for (iPath = 0; iPath < (int) Path.size (); iPath++)
+  {
+    VenueIterator iFromVenue = Path.at (iPath);
+
+    ResultString.append (iFromVenue->first.c_str ()); // Name of venue.
+
+    // If this isn't the last venue in the path, print information about the
+    // trip between this venue and the next one (time and notes).
+
+    if (iPath < (int) Path.size () - 1)
+    {
+      VenueIterator iToVenue = Path.at (iPath+1);
+      TravelTimeIterator iTravelTime =
+        iFromVenue->second.m_TravelTimesToOtherPlaces.find (iToVenue);
+      if (iTravelTime != iFromVenue->second.m_TravelTimesToOtherPlaces.end ())
+      {
+        int SecondsToNextVenue = iTravelTime->second.m_DistanceInMeters /
+          g_CommonUserSettings.m_WalkingSpeed +
+          iTravelTime->second.m_WorstCaseDelaySeconds;
+
+        sprintf (TempString, " (%0.1f", SecondsToNextVenue / 60.0);
+        ResultString.append (TempString);
+
+        if (!iTravelTime->second.m_Notes.empty ())
+        {
+          ResultString.append (", ");
+          ResultString.append (iTravelTime->second.m_Notes);
+        }
+        ResultString.append (") ");
+      }
+      else // No travel time data for some reason.
+        ResultString.append (", ");
+    }
+  }
+}
+
+
+/******************************************************************************
+ * Write the headers for our web page, whatever kind it is.  After this, error
+ * message printf's will be visible, so you need to do this fairly early on.
  */
 
 void WriteHTMLHeader ()
@@ -1071,17 +1221,24 @@ void WriteHTMLHeader ()
 "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
 "<HTML>\n"
 "<HEAD>\n"
-"<TITLE>Fringe Theatre Festival Visitor Schedule Optimiser by AGMS</TITLE>\n"
+"<TITLE>FFVSO - Fringe Theatre Festival Visitor Schedule Optimiser by "
+"AGMS</TITLE>\n"
 "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
 "<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
-"<META NAME=\"description\" CONTENT=\"A web app for scheduling attendance at "
-"theatre performances so that you don't miss the shows you want, and to pack "
-"in as many shows as possible while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"description\" CONTENT=\"Output from the FFVSO web app.  It's "
+"used for scheduling attendance at theatre performances so that you don't "
+"miss the shows you want, and so you can pack in as many shows as possible "
+"while avoiding duplicates.\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
 
+
+/******************************************************************************
+ * Write the deluxe format web page, with controls for editing the schedule,
+ * an area for the saved data, and various listings of items.
+ */
 
 void WriteHTMLForm ()
 {
@@ -1206,15 +1363,29 @@ void WriteHTMLForm ()
 
     // Dump out the event and a checkbox to change it.
 
-    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
-      "<TD>%s%s%s</TD><TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%d%s</TD>"
+      "<TD>%s%s%s</TD><TD>%s%s%s</TD>"
+      "<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
       "VALUE=\"On\"%s></INPUT></TD></TR>\n",
       StartHTML.c_str(), TimeString, EndHTML.c_str(),
       StartHTML.c_str(), iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
+      StartHTML.c_str(), (iEvent->second.m_TravelTimeToNextEvent + 59) / 60, EndHTML.c_str(),
       StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(), EndShowHTML.c_str(),
       StartVenueHTML.c_str(), iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str(),
       EventTime, iEvent->first.m_Venue->first.c_str(),
       (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
+
+    /* Print the path between the venues. */
+
+    if (!iEvent->second.m_PathToNextEvent.empty ())
+    {
+      std::string PathAsString;
+      WritePathToString (iEvent->second.m_PathToNextEvent, PathAsString);
+      printf ("<TR VALIGN=\"TOP\"><TD>&nbsp;</TD><TD COLSPAN=\"5\">%s%s%s</TD></TR>\n",
+        StartHTML.c_str (),
+        PathAsString.c_str (),
+        EndHTML.c_str ());
+    }
   }
 
   printf ("</TABLE>\n");
@@ -1300,8 +1471,7 @@ void WriteHTMLForm ()
   // Write out the SavedState giant text area.  To avoid HTML misinterpretation
   // problems, encode suspect characters for the data inside the textarea.
 
-  char Separator = (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].
-    c_str ())) ? '\t' : '|';
+  char Separator = g_CommonUserSettings.m_OnlyTab ? '\t' : '|';
 
   printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2>"
     "<P>You can copy this out and save it in a text file to preserve your "
@@ -1309,13 +1479,14 @@ void WriteHTMLForm ()
     "restore your custom schedule.  If things go awry (or updated schedule "
     "times have been posted for your festival), start a fresh session for "
     "your festival and append just the lines near the end that start with "
-    "\"Selected\".\n"
+    "\"Selected\" or \"Favourite\".\n"
     "<P><TEXTAREA NAME=\"SavedState\" cols=80 rows=40>\n");
 
   // Dump the settings state.  Do it first so default settings get used when
   // reading the events.
 
-  for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end(); ++iSetting)
+  for (iSetting = g_AllSettings.begin(); iSetting != g_AllSettings.end();
+  ++iSetting)
   {
     snprintf (OutputBuffer, sizeof (OutputBuffer), "Setting%c%s%c%s\n",
       Separator, iSetting->first.c_str(), Separator, iSetting->second.c_str());
@@ -1349,11 +1520,10 @@ void WriteHTMLForm ()
   // Dump the show states, for the duration if not default, and the URL.
   // Favourites done later to make cutting and pasting easier.
 
-  int DefaultShowDuration =
-    60 * atoi (g_AllSettings["DefaultShowDuration"].c_str ());
   for (iShow = g_AllShows.begin(); iShow != g_AllShows.end(); ++iShow)
   {
-    if (iShow->second.m_ShowDuration != DefaultShowDuration)
+    if (iShow->second.m_ShowDuration !=
+    g_CommonUserSettings.m_DefaultShowDuration)
     {
       snprintf (OutputBuffer, sizeof (OutputBuffer),
         "ShowDuration%c%s%c%d\n", Separator, iShow->first.c_str (), Separator,
@@ -1440,8 +1610,8 @@ void WriteHTMLForm ()
     }
   }
 
-  // Write out the selected event flags.  Done after the events, so we can cut
-  // and paste in new schedule information without losing our selections.
+  // Write out the selected event flags.  Done after everything else, so the
+  // user can more easily cut and paste their selections into a new schedule.
 
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
@@ -1627,7 +1797,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.34 2014/09/01 00:44:28 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -1741,6 +1911,154 @@ void GeneratePhantomReverseTravelTimes ()
 
 
 /******************************************************************************
+ * Find the shortest path from the origin to the destination.  Stores the path
+ * in the ResultingPath vector.  Returns true if a path was found, false if the
+ * destination is unreachable (vector will be empty in that case).
+ */
+
+struct VenuePathLengthComparator {
+  bool operator() (
+    const VenueIterator ItemA,
+    const VenueIterator ItemB) const
+  {
+    int PathLengthA = ItemA->second.m_PathSearchTravelTimeToHere;
+    int PathLengthB = ItemB->second.m_PathSearchTravelTimeToHere;
+
+    if (PathLengthA < PathLengthB)
+      return true;
+    if (PathLengthA > PathLengthB)
+      return false;
+
+    // For equal path lengths, sort by venue name.
+
+    const char *NameA = ItemA->first.c_str ();
+    const char *NameB = ItemB->first.c_str ();
+    return (strcmp (NameA, NameB) < 0);
+  }
+};
+
+
+bool FindShortestPath (VenueIterator iOriginVenue,
+  VenueIterator iDestinationVenue,
+  PathVector &ResultingPath, int &PathTravelTime)
+{
+  typedef std::set<VenueIterator, VenuePathLengthComparator> VenuesSortedSet;
+  VenuesSortedSet ExploreableVenues;
+
+  ResultingPath.clear ();
+  PathTravelTime = 0;
+
+  // Mark all nodes in the graph (venues) as unreached.
+
+  VenueIterator iVenue, iVenueEnd;
+
+  iVenueEnd = g_AllVenues.end ();
+  for (iVenue = g_AllVenues.begin (); iVenue != iVenueEnd; iVenue++)
+  {
+    iVenue->second.m_PathSearchTravelledFromVenue = iVenueEnd;
+    iVenue->second.m_PathSearchTravelTimeToHere = -1;
+  }
+
+  // Start with the origin as the first place to explore.
+
+  iOriginVenue->second.m_PathSearchTravelTimeToHere = 0;
+  ExploreableVenues.insert (iOriginVenue);
+
+  // Get the next exploreable venue with the smallest path from the origin
+  // found so far.  This must be the shortest possible path to that venue.
+  // If it's the destination, then we're done.  If everything has been
+  // explored, then we can't get to the destination from the origin.
+
+  while (!ExploreableVenues.empty ())
+  {
+    // Remove the venue with the shortest path from the unexplored list,
+    // it's now officially that far from the origin.
+
+    VenueIterator iCurrentVenue = *ExploreableVenues.begin ();
+    int CurrentDistance = iCurrentVenue->second.m_PathSearchTravelTimeToHere;
+    ExploreableVenues.erase (ExploreableVenues.begin ());
+
+    // If the destination is reached, build the path vector by backtracking
+    // to the original venue and return it.  Mission accomplished.
+
+    if (iCurrentVenue == iDestinationVenue)
+    {
+      // Count up the number of venues in the path.
+
+      VenueIterator iBacktrackVenue = iCurrentVenue;
+      int PathSize = 0;
+      do {
+        PathSize++;
+        if (iBacktrackVenue == iOriginVenue)
+          break;
+        iBacktrackVenue =
+          iBacktrackVenue->second.m_PathSearchTravelledFromVenue;
+      } while (PathSize < 1000);
+
+      ResultingPath.resize (PathSize, iVenueEnd);
+
+      // Write the backtracked path in reverse order, so it appears in the
+      // vector from origin to destination.
+
+      iBacktrackVenue = iCurrentVenue;
+      int iPath = PathSize;
+      do {
+        iPath--;
+        ResultingPath[iPath] = iBacktrackVenue;
+        if (iBacktrackVenue == iOriginVenue)
+          break;
+        iBacktrackVenue =
+          iBacktrackVenue->second.m_PathSearchTravelledFromVenue;
+      } while (iPath > 0);
+
+      PathTravelTime = iCurrentVenue->second.m_PathSearchTravelTimeToHere;
+      return true;
+    }
+
+    // Check all the places that you can go to from this venue.  If they have
+    // shorter paths than any other path found so far to that place, update
+    // their path as coming from this venue and put them in the unexplored
+    // list.
+
+    TravelTimeIterator iTravelTimeEnd =
+      iCurrentVenue->second.m_TravelTimesToOtherPlaces.end ();
+    TravelTimeIterator iTravelTime =
+      iCurrentVenue->second.m_TravelTimesToOtherPlaces.begin ();
+    for (; iTravelTime != iTravelTimeEnd; iTravelTime++)
+    {
+      VenueIterator iNextVenue = iTravelTime->first;
+
+      int TravelDistance = iTravelTime->second.m_DistanceInMeters;
+      if (TravelDistance < 0)
+        continue; // Marks a non-traversable edge, wrong way on one way street.
+
+      int OriginToNextVenueTime =
+        TravelDistance / g_CommonUserSettings.m_WalkingSpeed +
+        iTravelTime->second.m_WorstCaseDelaySeconds + CurrentDistance;
+
+      if (iNextVenue->second.m_PathSearchTravelTimeToHere < 0 ||
+      OriginToNextVenueTime < iNextVenue->second.m_PathSearchTravelTimeToHere)
+      {
+        // Have found a shorter path to iNextVenue.  Update its distance and
+        // backtrack path info, and (re)add it to the exploreable list in the
+        // new distance position.
+
+        ExploreableVenues.erase (iNextVenue);
+
+        iNextVenue->second.m_PathSearchTravelTimeToHere =
+          OriginToNextVenueTime;
+        iNextVenue->second.m_PathSearchTravelledFromVenue = iCurrentVenue;
+
+        ExploreableVenues.insert (iNextVenue);
+      }
+    }
+  }
+
+  return false;
+}
+
+
+/******************************************************************************
  * Compute conflicts, estimate walking times for the user, count number of
  * times the user sees each show and compute various other statistics.
  */
@@ -1770,20 +2088,39 @@ void ComputeConflictsAndStatistics ()
   venues and the time it takes to wait in line to buy tickets).  Fortunately
   the events are already sorted by start time.  Only consider adjacent shows,
   don't worry about a really long show that overlaps multiple following
-  shows.  Future feature: do a path search through the time it takes to go
-  from one venue to another to find a path between any two venues and the
-  corresponding time. */
+  shows.  Also do a shortest path search to calculate the time it takes to
+  go from one venue to another. */
 
-  int TimeBetweenEvents = // Currently the same for all venues.
-    atoi (g_AllSettings["DefaultTravelTime"].c_str ()) * 60 +
-    atoi (g_AllSettings["DefaultLineupTime"].c_str ()) * 60;
   EventIterator iPreviousEvent = g_AllEvents.end();
-  time_t PreviousEventEndTime = 0;
 
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
     if (!iEvent->second.m_IsSelectedByUser)
       continue;
+
+    // Find out how long it takes to travel between events.  Sort of
+    // retroactively find it for the previous event.  The result gets
+    // saved in the event structure so it can be printed non-retroactively
+    // when showing that previous event later on.
+
+    int TravelTime = 0;
+    time_t PreviousEventEndTime = 0;
+
+    if (iPreviousEvent != g_AllEvents.end())
+    {
+      if (!FindShortestPath (iPreviousEvent->first.m_Venue,
+      iEvent->first.m_Venue, iPreviousEvent->second.m_PathToNextEvent,
+      TravelTime))
+      {
+        // Not found, empty path, use default time.
+        TravelTime = g_CommonUserSettings.m_DefaultTravelTime;
+      }
+      iPreviousEvent->second.m_TravelTimeToNextEvent = TravelTime;
+
+      PreviousEventEndTime = iPreviousEvent->first.m_EventTime +
+        iPreviousEvent->second.m_ShowIter->second.m_ShowDuration +
+        TravelTime + g_CommonUserSettings.m_LineupTime;
+    }
 
     if (iEvent->first.m_EventTime < PreviousEventEndTime &&
     iPreviousEvent != g_AllEvents.end())
@@ -1795,9 +2132,6 @@ void ComputeConflictsAndStatistics ()
     }
 
     iPreviousEvent = iEvent;
-    PreviousEventEndTime = iEvent->first.m_EventTime +
-      iEvent->second.m_ShowIter->second.m_ShowDuration +
-      TimeBetweenEvents;
   }
 
   // Count up the shows seen more than once and ones not seen at all.
@@ -1906,12 +2240,12 @@ int main (int argc, char **argv)
     bFormDataMatchesStateData =
      (g_AllSettings["LastUpdateTime"] == iFormPair->second);
   }
-
   if (bFormDataMatchesStateData)
   {
     ReadFormControls ();
   }
 
+  ValidateUserSettings ();
   SortEventsByTimeAndShow ();
   GeneratePhantomReverseTravelTimes ();
   ComputeConflictsAndStatistics ();
