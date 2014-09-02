@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.38  2014/09/02 19:37:20  agmsmith
+ * Display the spare time between events in the path data.
+ *
  * Revision 1.37  2014/09/02 00:45:37  agmsmith
  * Nothing much, mostly reordering fields, changing printing a bit.
  *
@@ -550,7 +553,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1261,7 +1264,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1290,14 +1293,14 @@ void WriteHTMLForm ()
     "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n"
     "<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
     "(total time %d:%02d).\n"
-    "<BR>There are %d redundant, %d unseen favourites, and %d unseen shows.\n",
+    "<BR>There are %d redundant, %d unseen shows, and %d unseen favourites.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
     g_Statistics.m_TotalSecondsWatched / 60 % 60,
     g_Statistics.m_TotalNumberOfRedundantShows,
-    g_Statistics.m_TotalNumberOfUnseenFavouriteShows,
-    g_Statistics.m_TotalNumberOfUnseenShows);
+    g_Statistics.m_TotalNumberOfUnseenShows,
+    g_Statistics.m_TotalNumberOfUnseenFavouriteShows);
   printf ("<P ALIGN=\"CENTER\">");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule with your Changes\">\n");
   printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"See Printable Schedule\">\n");
@@ -1368,8 +1371,8 @@ void WriteHTMLForm ()
     }
 
     // Conflict state for path display depends on the next event being missed,
-    // since the path is printed for the current event, though it's
-    // conceptually between events.
+    // though the path is printed for the current event.  Conceptually it's
+    // between events.
 
     std::string StartPathHTML (StartHTML);
     std::string EndPathHTML (EndHTML);
@@ -1407,15 +1410,21 @@ void WriteHTMLForm ()
       EndVenueHTML.insert (0, "</A>");
     }
 
-    // Dump out the event and a checkbox to change it.
-
-    char TimeToGetToNextShowString [32];
+    char SpareTimeAfterThisShowString [32];
     if (iEvent->second.m_IsSelectedByUser)
-      sprintf (TimeToGetToNextShowString, "%d",
-        (g_CommonUserSettings.m_LineupTime +
-        iEvent->second.m_TravelTimeToNextEvent + 59) / 60);
-    else
-      strcpy (TimeToGetToNextShowString, "&nbsp;");
+    {
+      // Round up to the next minute, negative values round to more negative.
+      if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
+        sprintf (SpareTimeAfterThisShowString, "%d",
+          - (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
+      else
+        sprintf (SpareTimeAfterThisShowString, "%d",
+          iEvent->second.m_SpareTimeBeforeNextEvent / 60);
+    }
+    else // Need something in the table cell, else borders vanish.
+      strcpy (SpareTimeAfterThisShowString, "&nbsp;");
+
+    // Dump out the event and a checkbox to change it.
 
     printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
       "<TD>%s%s%s</TD><TD>%s%s%s</TD>"
@@ -1424,7 +1433,7 @@ void WriteHTMLForm ()
       StartHTML.c_str(), TimeString, EndHTML.c_str(),
       StartHTML.c_str(),
         iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
-      StartHTML.c_str(), TimeToGetToNextShowString, EndHTML.c_str(),
+      StartHTML.c_str(), SpareTimeAfterThisShowString, EndHTML.c_str(),
       StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(),
         EndShowHTML.c_str(),
       StartVenueHTML.c_str(), iEvent->first.m_Venue->first.c_str(),
@@ -1432,14 +1441,28 @@ void WriteHTMLForm ()
       EventTime, iEvent->first.m_Venue->first.c_str(),
       (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
 
-    /* Print the path between the venues. */
+    /* Print the path between the venues.  Only if this is a show the user is
+    going to attend, and the next attended show isn't too long away
+    (presumably they go home rather than needing a path). */
 
-    if (iEvent->second.m_IsSelectedByUser)
+    if (iEvent->second.m_IsSelectedByUser &&
+    iEvent->second.m_SpareTimeBeforeNextEvent <
+    g_CommonUserSettings.m_NewDayGap)
     {
       std::string PathAsString;
+      char TempString [80];
+
       WritePathToString (iEvent->second.m_PathToNextEvent, PathAsString);
 
-      char TempString [80];
+      // Print the total travel time.
+
+      sprintf (TempString, "%d+%d: ",
+        (g_CommonUserSettings.m_LineupTime + 59) / 60,
+        (iEvent->second.m_TravelTimeToNextEvent + 59) / 60);
+      PathAsString.insert (0, TempString);
+
+      // Print the spare time.
+
       if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
         sprintf (TempString, ", late by %d minutes.",
           (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
@@ -1846,15 +1869,16 @@ void WritePrintableListing ()
   // Print a footer with the statistics.
 
   printf ("<P ALIGN=\"CENTER\">");
-  printf ("<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
-    "(total time %d:%02d).<BR>There are %d redundant, %d unseen favourites and %d unseen shows.\n",
+  printf ("<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d "
+    "performances (total time %d:%02d).<BR>"
+    "There are %d redundant, %d unseen shows, and %d unseen favourites.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
     g_Statistics.m_TotalSecondsWatched / 60 / 60,
     g_Statistics.m_TotalSecondsWatched / 60 % 60,
     g_Statistics.m_TotalNumberOfRedundantShows,
-    g_Statistics.m_TotalNumberOfUnseenFavouriteShows,
-    g_Statistics.m_TotalNumberOfUnseenShows);
+    g_Statistics.m_TotalNumberOfUnseenShows,
+    g_Statistics.m_TotalNumberOfUnseenFavouriteShows);
 
   // Include the time when the table was printed, so you can tell different
   // versions of the table apart.
@@ -1864,7 +1888,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
