@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.36  2014/09/01 23:44:41  agmsmith
+ * Shortest path finding is starting to work, printout partly done.
+ *
  * Revision 1.35  2014/09/01 18:18:32  agmsmith
  * Generate the phantom TravelTime entries, and count them in the venue
  * listing.
@@ -253,7 +256,7 @@ struct TravelTimeStruct
     that worst case time. */
 
   std::string m_Notes;
-    /* Extra notes about this path segment.  Such as "Take elevator B".  Can
+    /* Extra notes about this path segment.  Such as "take elevator B".  Can
     include HTML for links etc. */
 
   bool m_IsPhantomReverse;
@@ -466,21 +469,26 @@ struct StatisticsStruct
 
 struct CommonUserSettingsStruct
 {
-  bool m_OnlyTab;
-    /* Use only the tab character when reading or writing saved state data.
-    If false then the vertical bar is also acceptable on input and will be
-    used on output. */
-
-  int m_LineupTime;
-    /* Number of seconds spent waiting in line to buy tickets, converted from
-    the user setting.  Assumed to be the same at all venues. */
-
   int m_DefaultShowDuration;
     /* Duration of a show if not otherwise specified, converted from the user
     setting to be in seconds. */
 
   int m_DefaultTravelTime;
     /* Time to travel between venues, in seconds, if no path exists. */
+
+  int m_LineupTime;
+    /* Number of seconds spent waiting in line to buy tickets, converted from
+    the user setting.  Assumed to be the same at all venues. */
+
+  int m_NewDayGap;
+    /* Number of seconds between the start times of events which qualifies it
+    as a new day.  Assume the user goes home at that time to sleep, so there
+    won't be a path for the last event in a day. */
+
+  bool m_OnlyTab;
+    /* Use only the tab character when reading or writing saved state data.
+    If false then the vertical bar is also acceptable on input and will be
+    used on output. */
 
   double m_WalkingSpeed;
     /* Walking speed from the user setting, converted to metres per second. */
@@ -533,7 +541,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1068,11 +1076,6 @@ void ValidateUserSettings ()
 {
   char TempString[80];
 
-  g_CommonUserSettings.m_OnlyTab = 
-    (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
-  g_AllSettings["UseOnlyTabForFieldSeparator"].assign (
-    g_CommonUserSettings.m_OnlyTab ? "1" : "0");
-
   g_CommonUserSettings.m_LineupTime =
     60 * atoi (g_AllSettings["DefaultLineupTime"].c_str ());
   if (g_CommonUserSettings.m_LineupTime < 0)
@@ -1096,6 +1099,21 @@ void ValidateUserSettings ()
     g_CommonUserSettings.m_DefaultTravelTime = 0;
     g_AllSettings["DefaultTravelTime"].assign ("0");
   }
+
+  g_CommonUserSettings.m_NewDayGap =
+    60 * atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
+  if (g_CommonUserSettings.m_NewDayGap < 0)
+  {
+    g_CommonUserSettings.m_NewDayGap = 0;
+    g_AllSettings["NewDayGapMinutes"].assign ("0");
+  }
+
+  g_CommonUserSettings.m_OnlyTab = 
+    (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
+  g_AllSettings["UseOnlyTabForFieldSeparator"].assign (
+    g_CommonUserSettings.m_OnlyTab ? "1" : "0");
+
+  // Walking time has more conversion and limits than usual.
 
   g_CommonUserSettings.m_WalkingSpeed =
     atof (g_AllSettings["WalkingSpeed km/h"].c_str ());
@@ -1169,7 +1187,12 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
 {
   char TempString [80];
 
-  ResultString.assign ("Path: ");
+  if (Path.empty ())
+    ResultString.assign ("No path found, using default travel time");
+  else if (Path.size () == 1)
+    ResultString.assign ("Stay at ");
+  else
+    ResultString.clear ();
 
   int iPath;
   for (iPath = 0; iPath < (int) Path.size (); iPath++)
@@ -1206,6 +1229,7 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
         ResultString.append (", ");
     }
   }
+  ResultString.append (".");
 }
 
 
@@ -1229,7 +1253,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1250,7 +1274,6 @@ void WriteHTMLForm ()
   struct tm BrokenUpDate;
   char OutputBuffer[4096];
   char TimeString[40];
-  int NewDayGapMinutes = atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
 
   printf ("%s\n", g_AllSettings["TitleEdit"].c_str ());
   printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
@@ -1285,9 +1308,12 @@ void WriteHTMLForm ()
     "<P><TABLE BORDER=\"1\" CELLPADDING=\"1\">\n", g_AllEvents.size ());
 
   time_t PreviousTime = 0;
+  time_t EventTime = 0;
   int iSortedEvent;
   const int iEndSortedEvent = g_EventsSortedByTimeAndShow.size ();
-  for (iSortedEvent = 0; iSortedEvent < iEndSortedEvent; ++iSortedEvent)
+
+  for (iSortedEvent = 0; iSortedEvent < iEndSortedEvent;
+  PreviousTime = EventTime, ++iSortedEvent)
   {
     iEvent = g_EventsSortedByTimeAndShow[iSortedEvent];
 
@@ -1295,16 +1321,15 @@ void WriteHTMLForm ()
     // previous event, print out a new day heading.  The Ottawa Fringe last
     // show is usually at midnight, and the first one after that is at noon.
 
-    time_t EventTime = iEvent->first.m_EventTime;
+    EventTime = iEvent->first.m_EventTime;
     localtime_r (&EventTime, &BrokenUpDate);
     double DeltaTime = difftime (EventTime, PreviousTime);
-    if (fabs (DeltaTime) > NewDayGapMinutes * 60)
+    if (fabs (DeltaTime) > g_CommonUserSettings.m_NewDayGap)
     {
       strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
         &BrokenUpDate);
-      printf ("<TR><TH COLSPAN=\"5\">%s</TH></TR>\n", TimeString);
+      printf ("<TR><TH COLSPAN=\"6\">%s</TH></TR>\n", TimeString);
     }
-    PreviousTime = EventTime;
 
     // Print out the event itself.  Just use the hours and minutes for the time
     // to avoid cluttering the display with full date and time values.
@@ -1363,28 +1388,38 @@ void WriteHTMLForm ()
 
     // Dump out the event and a checkbox to change it.
 
-    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%d%s</TD>"
+    char TimeToGetToNextShowString [32];
+    if (iEvent->second.m_IsSelectedByUser)
+      sprintf (TimeToGetToNextShowString, "%d",
+        (g_CommonUserSettings.m_LineupTime +
+        iEvent->second.m_TravelTimeToNextEvent + 59) / 60);
+    else
+      strcpy (TimeToGetToNextShowString, "&nbsp;");
+
+    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
       "<TD>%s%s%s</TD><TD>%s%s%s</TD>"
       "<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
       "VALUE=\"On\"%s></INPUT></TD></TR>\n",
       StartHTML.c_str(), TimeString, EndHTML.c_str(),
-      StartHTML.c_str(), iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
-      StartHTML.c_str(), (iEvent->second.m_TravelTimeToNextEvent + 59) / 60, EndHTML.c_str(),
-      StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(), EndShowHTML.c_str(),
-      StartVenueHTML.c_str(), iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str(),
+      StartHTML.c_str(),
+        iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
+      StartHTML.c_str(), TimeToGetToNextShowString, EndHTML.c_str(),
+      StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(),
+        EndShowHTML.c_str(),
+      StartVenueHTML.c_str(), iEvent->first.m_Venue->first.c_str(),
+        EndVenueHTML.c_str(),
       EventTime, iEvent->first.m_Venue->first.c_str(),
       (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
 
     /* Print the path between the venues. */
 
-    if (!iEvent->second.m_PathToNextEvent.empty ())
+    if (iEvent->second.m_IsSelectedByUser)
     {
       std::string PathAsString;
       WritePathToString (iEvent->second.m_PathToNextEvent, PathAsString);
-      printf ("<TR VALIGN=\"TOP\"><TD>&nbsp;</TD><TD COLSPAN=\"5\">%s%s%s</TD></TR>\n",
-        StartHTML.c_str (),
-        PathAsString.c_str (),
-        EndHTML.c_str ());
+      printf ("<TR VALIGN=\"TOP\"><TD>&nbsp;</TD>"
+        "<TD COLSPAN=\"5\">%s%s%s</TD></TR>\n",
+        StartHTML.c_str (), PathAsString.c_str (), EndHTML.c_str ());
     }
   }
 
@@ -1734,7 +1769,6 @@ void WritePrintableListing ()
   struct tm BrokenUpDate;
   EventIterator iEvent;
   char TimeString[40];
-  int NewDayGapMinutes = atoi (g_AllSettings["NewDayGapMinutes"].c_str ());
 
   printf ("%s\n", g_AllSettings["TitlePrint"].c_str ());
 
@@ -1743,8 +1777,10 @@ void WritePrintableListing ()
 
   printf ("<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
 
+  time_t EventTime = 0;
   time_t PreviousTime = 0;
-  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
+  for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end();
+  PreviousTime = EventTime, ++iEvent)
   {
     if (!iEvent->second.m_IsSelectedByUser)
       continue;
@@ -1754,13 +1790,12 @@ void WritePrintableListing ()
     time_t EventTime = iEvent->first.m_EventTime;
     localtime_r (&EventTime, &BrokenUpDate);
     double DeltaTime = difftime (EventTime, PreviousTime);
-    if (fabs (DeltaTime) > NewDayGapMinutes * 60)
+    if (fabs (DeltaTime) > g_CommonUserSettings.m_NewDayGap)
     {
       strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
         &BrokenUpDate);
       printf ("<TR><TH COLSPAN=\"4\">%s</TH></TR>\n", TimeString);
     }
-    PreviousTime = EventTime;
 
     // Print out the event itself.
 
@@ -1797,7 +1832,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.35 2014/09/01 18:18:32 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
