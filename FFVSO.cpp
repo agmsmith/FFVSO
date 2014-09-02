@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.37  2014/09/02 00:45:37  agmsmith
+ * Nothing much, mostly reordering fields, changing printing a bit.
+ *
  * Revision 1.36  2014/09/01 23:44:41  agmsmith
  * Shortest path finding is starting to work, printout partly done.
  *
@@ -404,14 +407,20 @@ typedef struct EventStruct
     /* Identifies the show that is being performed at this place and time. */
 
   PathVector m_PathToNextEvent;
-    /* A list of venues giving the shortest path to the next event. */
+    /* A list of venues giving the shortest path to the next event the user
+    is attending. */
 
   int m_TravelTimeToNextEvent;
     /* How long does it take to traverse that path?  Doesn't include time
     spent waiting in line for tickets. */
 
+  int m_SpareTimeBeforeNextEvent;
+    /* How many seconds of spare time do you have between travelling to the
+    next event (includes buying tickets) and the start of the next event.
+    Negative if you'll arrive late at the next event. */
+
   EventStruct () : m_IsSelectedByUser(false), m_IsConflicting(false),
-    m_TravelTimeToNextEvent(-1)
+    m_TravelTimeToNextEvent(-1), m_SpareTimeBeforeNextEvent(0)
   {};
 
 } EventRecord, *EventPointer;
@@ -541,7 +550,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1229,7 +1238,6 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
         ResultString.append (", ");
     }
   }
-  ResultString.append (".");
 }
 
 
@@ -1253,7 +1261,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1296,7 +1304,8 @@ void WriteHTMLForm ()
 
   // Write out the event listing with checkboxes beside each event to let the
   // user select it.  Done as a table with five columns: event time, duration,
-  // show name, venue name, checkbox.
+  // show name, venue name, checkbox.  Optionally show path to the next
+  // event's venue in a line underneath.
 
   printf ("<H2><A NAME=\"Events\"></A>Listing of %ld Events</H2>\n"
     "<P>Use the checkboxes to select the events you want to see, then hit the "
@@ -1358,6 +1367,18 @@ void WriteHTMLForm ()
       EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
     }
 
+    // Conflict state for path display depends on the next event being missed,
+    // since the path is printed for the current event, though it's
+    // conceptually between events.
+
+    std::string StartPathHTML (StartHTML);
+    std::string EndPathHTML (EndHTML);
+    if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
+    {
+      StartPathHTML.append (g_AllSettings["HTMLConflictBegin"]);
+      EndPathHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
+    }
+
     if (iEvent->second.m_IsConflicting)
     {
       StartHTML.append (g_AllSettings["HTMLConflictBegin"]);
@@ -1417,9 +1438,20 @@ void WriteHTMLForm ()
     {
       std::string PathAsString;
       WritePathToString (iEvent->second.m_PathToNextEvent, PathAsString);
+
+      char TempString [80];
+      if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
+        sprintf (TempString, ", late by %d minutes.",
+          (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
+      else
+        sprintf (TempString, ", %d spare minutes.",
+          iEvent->second.m_SpareTimeBeforeNextEvent / 60);
+
       printf ("<TR VALIGN=\"TOP\"><TD>&nbsp;</TD>"
-        "<TD COLSPAN=\"5\">%s%s%s</TD></TR>\n",
-        StartHTML.c_str (), PathAsString.c_str (), EndHTML.c_str ());
+        "<TD COLSPAN=\"5\">%s%s%s%s</TD></TR>\n",
+        StartPathHTML.c_str (),
+        PathAsString.c_str (), TempString,
+        EndPathHTML.c_str ());
     }
   }
 
@@ -1832,7 +1864,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.36 2014/09/01 23:44:41 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.37 2014/09/02 00:45:37 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2155,6 +2187,9 @@ void ComputeConflictsAndStatistics ()
       PreviousEventEndTime = iPreviousEvent->first.m_EventTime +
         iPreviousEvent->second.m_ShowIter->second.m_ShowDuration +
         TravelTime + g_CommonUserSettings.m_LineupTime;
+
+      iPreviousEvent->second.m_SpareTimeBeforeNextEvent =
+        iEvent->first.m_EventTime - PreviousEventEndTime;
     }
 
     if (iEvent->first.m_EventTime < PreviousEventEndTime &&
