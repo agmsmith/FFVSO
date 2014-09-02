@@ -5,9 +5,12 @@
 <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8">
 <META NAME="author" CONTENT="Alexander G. M. Smith">
 <META NAME="description" CONTENT="A web app for scheduling attendance at theatre performances so that you don't miss the shows you want, and pack in as many as possible while avoiding duplicates.">
-<META NAME="version" CONTENT="$Id: Ottawa2014FringeFestivalOptimiserStartHere.html,v 1.20 2014/06/28 04:36:54 agmsmith Exp agmsmith $">
+<META NAME="version" CONTENT="$Id: Ottawa2014FringeFestivalOptimiserStartHere.html,v 1.21 2014/06/28 04:39:11 agmsmith Exp agmsmith $">
 <!--
 ; $Log: Ottawa2014FringeFestivalOptimiserStartHere.html,v $
+; Revision 1.21  2014/06/28 04:39:11  agmsmith
+; Remove old data for Best of Fest, now have winners instead.
+;
 ; Revision 1.20  2014/06/28 04:36:54  agmsmith
 ; Include Metro Best of Fest in title string too.
 ;
@@ -76,7 +79,9 @@
 <H1>Fringe Theatre Festival Visitor Schedule Optimiser</H1>
 
 <FORM ACTION="http://www.agmsmith.ca/cgi-bin/FFVSO.cgi" method="POST">
-<P ALIGN="CENTER"><INPUT TYPE="SUBMIT" VALUE="Update Schedule">
+<P>If you're starting a new schedule, just click the Update Schedule button.
+<P>If you're combining your previous schedule selections with this updated database of times and events, append your "Selected" and "Favourite" lines to the end of the text in the box, then click Update Schedule.
+<P><INPUT TYPE="SUBMIT" VALUE="Update Schedule">
 <P><TEXTAREA NAME="SavedState" cols=80 rows=40>
 Setting|TitleEdit|&lt;H1&gt;Ottawa 2014 Fringe Festival Schedule Editor&lt;/H1&gt;&lt;P&gt;Data grabbed from &lt;A HREF="http://ottawafringe.com/schedule/"&gt;http://ottawafringe.com/schedule/&lt;/A&gt; on Friday, June 27, 2014 (show "3" cancelled, "House" added, last two "Iredea" shows cancelled, Metro Best of Fest winners added).  You may wish to check for updates &amp; errata on the Fringe site and if necessary paste the new schedule data into the raw data box.
 Setting|TitlePrint|&lt;H1&gt;Ottawa 2014 Fringe Festival Schedule&lt;/H1&gt;
@@ -550,6 +555,22 @@ ShowURL|Women Who Shout at the Stars|http://ottawafringe.com/tickets/women-who-s
 ShowURL|Wunderjammer|http://ottawafringe.com/tickets/wunderjammer/
 ShowDuration|Youth Infringement Patron’s Pick|45
 ShowURL|Youth Infringement Patron’s Pick|http://ottawafringe.com/tickets/youth-infringement-patrons-pick/
+TravelTime|Academic Hall|Studio Léonard-Beaulne|12
+TravelTime|Arts Court Library|Courtroom|10
+TravelTime|Arts Court Library|Courtyard|102|43|via elevator A
+TravelTime|Arts Court Library|ODD Box|15
+TravelTime|Arts Court Theatre|Arts Court Library|29|0|via stairs
+TravelTime|Arts Court Theatre|Courtyard|125|51|via elevator B
+TravelTime|Arts Court Theatre|ODD Box|25|0|via stairs
+TravelTime|Courtyard|Academic Hall|123|86|via Waller & Mackenzie
+TravelTime|Courtyard|Avant Garde|151|171|two slow traffic lights
+TravelTime|Courtyard|Lunenburg Pub|180|135|approximate
+TravelTime|Courtyard|Mercury Lounge|470|0|approximate
+TravelTime|St. Paul’s Eastern United|Courtyard|183|72|via Waller & Daly
+TravelTime|St. Paul’s Eastern United|St. Alban’s|100
+TravelTime|Studio Léonard-Beaulne|Café Alt|182|43
+TravelTime|Studio Léonard-Beaulne|St. Paul’s Eastern United|171
+TravelTime|Studio Léonard-Beaulne|Studio 311|100|0|five floors up stairs
 </TEXTAREA>
 </FORM>
 </BODY>
