@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,11 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.39  2014/09/02 20:48:13  agmsmith
+ * Display the spare time rather than the travel time beside the show
+ * duration, it's more useful.  Also don't show paths if there is
+ * too much spare time between shows (user goes home or to dinner).
+ *
  * Revision 1.38  2014/09/02 19:37:20  agmsmith
  * Display the spare time between events in the path data.
  *
@@ -553,7 +558,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1264,7 +1269,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1417,9 +1422,12 @@ void WriteHTMLForm ()
       if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
         sprintf (SpareTimeAfterThisShowString, "%d",
           - (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
-      else
+      else if (iEvent->second.m_SpareTimeBeforeNextEvent <
+      g_CommonUserSettings.m_NewDayGap)
         sprintf (SpareTimeAfterThisShowString, "%d",
           iEvent->second.m_SpareTimeBeforeNextEvent / 60);
+      else // Too much spare time, don't print it.
+        strcpy (SpareTimeAfterThisShowString, "-");
     }
     else // Need something in the table cell, else borders vanish.
       strcpy (SpareTimeAfterThisShowString, "&nbsp;");
@@ -1835,14 +1843,14 @@ void WritePrintableListing ()
   time_t EventTime = 0;
   time_t PreviousTime = 0;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end();
-  PreviousTime = EventTime, ++iEvent)
+  ++iEvent)
   {
     if (!iEvent->second.m_IsSelectedByUser)
       continue;
 
     // If long enough time has gone by, print out a new day heading.
 
-    time_t EventTime = iEvent->first.m_EventTime;
+    EventTime = iEvent->first.m_EventTime;
     localtime_r (&EventTime, &BrokenUpDate);
     double DeltaTime = difftime (EventTime, PreviousTime);
     if (fabs (DeltaTime) > g_CommonUserSettings.m_NewDayGap)
@@ -1862,6 +1870,11 @@ void WritePrintableListing ()
       iEvent->second.m_ShowIter->second.m_ShowDuration / 60,
       iEvent->second.m_ShowIter->first.c_str(),
       iEvent->first.m_Venue->first.c_str());
+
+    // Update the previous time but only for events which are printed.  This
+    // lets us skip whole days if the user isn't going to see anything then.
+
+    PreviousTime = EventTime;
   }
 
   printf ("</TABLE>\n");
@@ -1888,7 +1901,7 @@ void WritePrintableListing ()
   localtime_r (&CurrentTime, &BrokenUpDate);
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.38 2014/09/02 19:37:20 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
