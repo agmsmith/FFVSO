@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,16 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.41  2014/09/04 20:58:20  agmsmith
+ * Add an option to show or hide the paths, and a checkbox to control it.
+ * Also add a text box to more easily specify the walking speed.  Avoid
+ * using walking speeds less than 0.1 km/h, math overflow causes an
+ * infinite loop (some distances become negative).  Don't specify web
+ * server name for form submittal, so it can work on the local network
+ * better when a raw IP address is used.  Remove </INPUT> lines, they're
+ * not used in valid HTML 3.2.  Fix a bug with time display not working,
+ * was a string too small to handle "September".
+ *
  * Revision 1.40  2014/09/02 21:21:24  agmsmith
  * Don't print spare time if it's too big (means overnight break).
  *
@@ -423,7 +433,9 @@ typedef struct EventStruct
 
   int m_TravelTimeToNextEvent;
     /* How long does it take to traverse that path?  Doesn't include time
-    spent waiting in line for tickets. */
+    spent waiting in line for tickets.  Negative if there is no next event,
+    which usually only is visible for the very last event the user is going
+    to. */
 
   int m_SpareTimeBeforeNextEvent;
     /* How many seconds of spare time do you have between travelling to the
@@ -566,7 +578,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1065,7 +1077,7 @@ void ReadFormControls ()
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
     time_t EventTime = iEvent->first.m_EventTime;
-    char TimeString[32];
+    char TimeString[60];
     sprintf (TimeString, "Event,%ld,", EventTime);
     std::string CheckboxName (TimeString);
     CheckboxName.append (iEvent->first.m_Venue->first);
@@ -1305,9 +1317,191 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
+}
+
+
+/******************************************************************************
+ * Print the table row for an event listing.  If printing for the editable
+ * display, include the checkbox at the end for selecting the event and
+ * highlight more things (printable mode is plainer).  Also optionally print
+ * the path between venues.  This is mostly about avoiding the problems with
+ * duplication of code for edit/printout mode.
+ */
+
+void WriteHTMLEventRow (EventIterator iEvent, bool bIncludeEditModeFeatures)
+{
+  struct tm BrokenUpDate;
+  time_t EventTime = iEvent->first.m_EventTime;
+  char TimeString[60];
+
+  // Just use the hours and minutes for the time to avoid cluttering the
+  // display with full date and time values.
+
+  localtime_r (&EventTime, &BrokenUpDate);
+  strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
+
+  // Add highlighting for selected events, conflicts and favourite shows.
+  // Print mode doesn't do any highlighting.
+
+  std::string StartHTML;
+  std::string EndHTML;
+
+  if (bIncludeEditModeFeatures)
+  {
+    if (iEvent->second.m_IsSelectedByUser)
+    {
+      StartHTML.append (g_AllSettings["HTMLSelectBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLSelectEnd"]);
+    }
+    else if (iEvent->second.m_ShowIter->second.m_ScheduledCount > 0)
+    {
+      StartHTML.append (g_AllSettings["HTMLAlreadyPickedBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLAlreadyPickedEnd"]);
+    }
+
+    if (iEvent->second.m_ShowIter->second.m_IsFavourite)
+    {
+      StartHTML.append (g_AllSettings["HTMLFavouriteBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
+    }
+  }
+
+  // Conflict state for path display depends on the next event being missed,
+  // though the path is printed for the current event.  Conceptually it's
+  // between events.
+
+  std::string StartPathHTML (StartHTML);
+  std::string EndPathHTML (EndHTML);
+  if (bIncludeEditModeFeatures)
+  {
+    if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
+    {
+      StartPathHTML.append (g_AllSettings["HTMLConflictBegin"]);
+      EndPathHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
+    }
+
+    if (iEvent->second.m_IsConflicting)
+    {
+      StartHTML.append (g_AllSettings["HTMLConflictBegin"]);
+      EndHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
+    }
+  }
+
+  // Also include a URL link with the highlighting, for shows and venues.
+
+  std::string StartShowHTML (StartHTML);
+  std::string EndShowHTML (EndHTML);
+  if (bIncludeEditModeFeatures)
+  {
+    if (!iEvent->second.m_ShowIter->second.m_ShowURL.empty ())
+    {
+      StartShowHTML.append ("<A HREF=\"");
+      StartShowHTML.append (iEvent->second.m_ShowIter->second.m_ShowURL);
+      StartShowHTML.append ("\">");
+      EndShowHTML.insert (0, "</A>");
+    }
+  }
+
+  std::string StartVenueHTML (StartHTML);
+  std::string EndVenueHTML (EndHTML);
+  if (bIncludeEditModeFeatures)
+  {
+    if (!iEvent->first.m_Venue->second.m_VenueURL.empty ())
+    {
+      StartVenueHTML.append ("<A HREF=\"");
+      StartVenueHTML.append (iEvent->first.m_Venue->second.m_VenueURL);
+      StartVenueHTML.append ("\">");
+      EndVenueHTML.insert (0, "</A>");
+    }
+  }
+
+  char SpareTimeAfterThisShowString [32];
+  if (iEvent->second.m_IsSelectedByUser)
+  {
+    // Round up to the next minute, negative values round to more negative.
+
+    if (iEvent->second.m_TravelTimeToNextEvent < 0)
+      strcpy (SpareTimeAfterThisShowString, "-"); // Very last event, go home.
+    else if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
+      sprintf (SpareTimeAfterThisShowString, "%d",
+        - (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
+    else if (iEvent->second.m_SpareTimeBeforeNextEvent <
+    g_CommonUserSettings.m_NewDayGap)
+      sprintf (SpareTimeAfterThisShowString, "%d",
+        iEvent->second.m_SpareTimeBeforeNextEvent / 60);
+    else // Too much spare time, don't print it.
+      strcpy (SpareTimeAfterThisShowString, "-");
+  }
+  else // Need something in the table cell, else borders vanish.
+    strcpy (SpareTimeAfterThisShowString, "&nbsp;");
+
+  // Dump out the event row.
+
+  printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
+    "<TD>%s%s%s</TD><TD>%s%s%s</TD>",
+    StartHTML.c_str(), TimeString, EndHTML.c_str(),
+    StartHTML.c_str(),
+      (iEvent->second.m_ShowIter->second.m_ShowDuration + 59) / 60,
+      EndHTML.c_str(),
+    StartHTML.c_str(), SpareTimeAfterThisShowString, EndHTML.c_str(),
+    StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(),
+      EndShowHTML.c_str(),
+    StartVenueHTML.c_str(),
+      iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str());
+
+  // Add a checkbox if in edit mode.
+
+  if (bIncludeEditModeFeatures)
+  {
+    printf ("<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
+      "VALUE=\"On\"%s></TD>",
+      EventTime, iEvent->first.m_Venue->first.c_str(),
+      (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
+  }
+
+  printf ("</TR>\n");
+
+  /* Print the path between the venues.  Only if this is a show the user is
+  going to attend, and the next attended show isn't too long away
+  (presumably they go home rather than needing a path). */
+
+  if (g_CommonUserSettings.m_ShowPaths &&
+  iEvent->second.m_IsSelectedByUser &&
+  iEvent->second.m_SpareTimeBeforeNextEvent <
+  g_CommonUserSettings.m_NewDayGap &&
+  iEvent->second.m_TravelTimeToNextEvent >= 0 /* there is a next event */)
+  {
+    std::string PathAsString;
+    char TempString [80];
+
+    WritePathToString (iEvent->second.m_PathToNextEvent, PathAsString);
+
+    // Print the total travel time.
+
+    sprintf (TempString, "%d+%d: ",
+      (g_CommonUserSettings.m_LineupTime + 59) / 60,
+      (iEvent->second.m_TravelTimeToNextEvent + 59) / 60);
+    PathAsString.insert (0, TempString);
+
+    // Print the spare time.
+
+    if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
+      sprintf (TempString, ", late by %d minutes.",
+        (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
+    else
+      sprintf (TempString, ", %d spare minutes.",
+        iEvent->second.m_SpareTimeBeforeNextEvent / 60);
+
+    printf ("<TR VALIGN=\"TOP\"><TD>&nbsp;</TD>"
+      "<TD COLSPAN=\"%d\">%s%s%s%s</TD></TR>\n",
+      bIncludeEditModeFeatures ? 5 : 4,
+      StartPathHTML.c_str (),
+      PathAsString.c_str (), TempString,
+      EndPathHTML.c_str ());
+  }
 }
 
 
@@ -1325,15 +1519,17 @@ void WriteHTMLForm ()
 
   struct tm BrokenUpDate;
   char OutputBuffer[4096];
-  char TimeString[40];
+  char TimeString[60];
 
   printf ("%s\n", g_AllSettings["TitleEdit"].c_str ());
   printf ("<FORM ACTION=\"/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
   printf ("<P ALIGN=\"CENTER\">");
-  printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
-    "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n"
-    "<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d performances "
-    "(total time %d:%02d).\n"
+  printf ("Jump to <A HREF=\"#Events\">Events</A> "
+    "<A HREF=\"#Shows\">Shows</A> "
+    "<A HREF=\"#Venues\">Venues</A> "
+    "<A HREF=\"#RawData\">Raw Data</A>\n"
+    "<P ALIGN=\"CENTER\">You have %d conflicts and you are seeing %d "
+    "performances (total time %d:%02d).\n"
     "<BR>There are %d redundant, %d unseen shows, and %d unseen favourites.\n",
     g_Statistics.m_TotalNumberOfConflicts,
     g_Statistics.m_TotalNumberOfEventsScheduled,
@@ -1351,13 +1547,14 @@ void WriteHTMLForm ()
     "NAME=\"WalkingSpeed\" SIZE=\"3\" VALUE=\"%s\">km/h.\n",
     g_AllSettings["WalkingSpeed km/h"].c_str ());
   printf ("<LI>Show paths between venues: "
-    "<INPUT TYPE=\"CHECKBOX\" NAME=\"ShowPaths\" VALUE=\"On\"%s> </UL>\n",
+    "<INPUT TYPE=\"CHECKBOX\" NAME=\"ShowPaths\" VALUE=\"On\"%s>\n",
     (g_CommonUserSettings.m_ShowPaths) ? " CHECKED" : "");
+  printf ("</UL>\n");
 
   // Write out the event listing with checkboxes beside each event to let the
-  // user select it.  Done as a table with five columns: event time, duration,
-  // show name, venue name, checkbox.  Optionally show path to the next
-  // event's venue in a line underneath.
+  // user select it.  Done as a table with six columns: event time, duration,
+  // spare minutes to next show, show name, venue name, checkbox.  Optionally
+  // show path to the next event's venue in a line underneath.
 
   printf ("<H2><A NAME=\"Events\"></A>Listing of %ld Events</H2>\n"
     "<P>Use the checkboxes to select the events you want to see, then hit the "
@@ -1392,143 +1589,7 @@ void WriteHTMLForm ()
       printf ("<TR><TH COLSPAN=\"6\">%s</TH></TR>\n", TimeString);
     }
 
-    // Print out the event itself.  Just use the hours and minutes for the time
-    // to avoid cluttering the display with full date and time values.
-
-    strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
-
-    // Add highlighting for selected events, conflicts and favourite shows.
-
-    std::string StartHTML;
-    std::string EndHTML;
-
-    if (iEvent->second.m_IsSelectedByUser)
-    {
-      StartHTML.append (g_AllSettings["HTMLSelectBegin"]);
-      EndHTML.insert (0, g_AllSettings["HTMLSelectEnd"]);
-    }
-    else if (iEvent->second.m_ShowIter->second.m_ScheduledCount > 0)
-    {
-      StartHTML.append (g_AllSettings["HTMLAlreadyPickedBegin"]);
-      EndHTML.insert (0, g_AllSettings["HTMLAlreadyPickedEnd"]);
-    }
-
-    if (iEvent->second.m_ShowIter->second.m_IsFavourite)
-    {
-      StartHTML.append (g_AllSettings["HTMLFavouriteBegin"]);
-      EndHTML.insert (0, g_AllSettings["HTMLFavouriteEnd"]);
-    }
-
-    // Conflict state for path display depends on the next event being missed,
-    // though the path is printed for the current event.  Conceptually it's
-    // between events.
-
-    std::string StartPathHTML (StartHTML);
-    std::string EndPathHTML (EndHTML);
-    if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
-    {
-      StartPathHTML.append (g_AllSettings["HTMLConflictBegin"]);
-      EndPathHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
-    }
-
-    if (iEvent->second.m_IsConflicting)
-    {
-      StartHTML.append (g_AllSettings["HTMLConflictBegin"]);
-      EndHTML.insert (0, g_AllSettings["HTMLConflictEnd"]);
-    }
-
-    // Also include a URL link with the highlighting, for shows and venues.
-
-    std::string StartShowHTML (StartHTML);
-    std::string EndShowHTML (EndHTML);
-    if (!iEvent->second.m_ShowIter->second.m_ShowURL.empty ())
-    {
-      StartShowHTML.append ("<A HREF=\"");
-      StartShowHTML.append (iEvent->second.m_ShowIter->second.m_ShowURL);
-      StartShowHTML.append ("\">");
-      EndShowHTML.insert (0, "</A>");
-    }
-
-    std::string StartVenueHTML (StartHTML);
-    std::string EndVenueHTML (EndHTML);
-    if (!iEvent->first.m_Venue->second.m_VenueURL.empty ())
-    {
-      StartVenueHTML.append ("<A HREF=\"");
-      StartVenueHTML.append (iEvent->first.m_Venue->second.m_VenueURL);
-      StartVenueHTML.append ("\">");
-      EndVenueHTML.insert (0, "</A>");
-    }
-
-    char SpareTimeAfterThisShowString [32];
-    if (iEvent->second.m_IsSelectedByUser)
-    {
-      // Round up to the next minute, negative values round to more negative.
-      if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
-        sprintf (SpareTimeAfterThisShowString, "%d",
-          - (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
-      else if (iEvent->second.m_SpareTimeBeforeNextEvent <
-      g_CommonUserSettings.m_NewDayGap)
-        sprintf (SpareTimeAfterThisShowString, "%d",
-          iEvent->second.m_SpareTimeBeforeNextEvent / 60);
-      else // Too much spare time, don't print it.
-        strcpy (SpareTimeAfterThisShowString, "-");
-    }
-    else // Need something in the table cell, else borders vanish.
-      strcpy (SpareTimeAfterThisShowString, "&nbsp;");
-
-    // Dump out the event and a checkbox to change it.
-
-    printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
-      "<TD>%s%s%s</TD><TD>%s%s%s</TD>"
-      "<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
-      "VALUE=\"On\"%s></TD></TR>\n",
-      StartHTML.c_str(), TimeString, EndHTML.c_str(),
-      StartHTML.c_str(),
-        iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
-      StartHTML.c_str(), SpareTimeAfterThisShowString, EndHTML.c_str(),
-      StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(),
-        EndShowHTML.c_str(),
-      StartVenueHTML.c_str(), iEvent->first.m_Venue->first.c_str(),
-        EndVenueHTML.c_str(),
-      EventTime, iEvent->first.m_Venue->first.c_str(),
-      (iEvent->second.m_IsSelectedByUser) ? " CHECKED" : "");
-
-    /* Print the path between the venues.  Only if this is a show the user is
-    going to attend, and the next attended show isn't too long away
-    (presumably they go home rather than needing a path). */
-
-    if (g_CommonUserSettings.m_ShowPaths &&
-    iEvent->second.m_IsSelectedByUser &&
-    iEvent->second.m_SpareTimeBeforeNextEvent <
-    g_CommonUserSettings.m_NewDayGap)
-    {
-      std::string PathAsString;
-      char TempString [80];
-
-      WritePathToString (iEvent->second.m_PathToNextEvent, PathAsString);
-
-      // Print the total travel time.
-
-      sprintf (TempString, "%d+%d: ",
-        (g_CommonUserSettings.m_LineupTime + 59) / 60,
-        (iEvent->second.m_TravelTimeToNextEvent + 59) / 60);
-      PathAsString.insert (0, TempString);
-
-      // Print the spare time.
-
-      if (iEvent->second.m_SpareTimeBeforeNextEvent < 0)
-        sprintf (TempString, ", late by %d minutes.",
-          (59 - iEvent->second.m_SpareTimeBeforeNextEvent) / 60);
-      else
-        sprintf (TempString, ", %d spare minutes.",
-          iEvent->second.m_SpareTimeBeforeNextEvent / 60);
-
-      printf ("<TR VALIGN=\"TOP\"><TD>&nbsp;</TD>"
-        "<TD COLSPAN=\"5\">%s%s%s%s</TD></TR>\n",
-        StartPathHTML.c_str (),
-        PathAsString.c_str (), TempString,
-        EndPathHTML.c_str ());
-    }
+    WriteHTMLEventRow (iEvent, true /* bIncludeEditModeFeatures */);
   }
 
   printf ("</TABLE>\n");
@@ -1881,7 +1942,8 @@ void WritePrintableListing ()
   printf ("%s\n", g_AllSettings["TitlePrint"].c_str ());
 
   // Write out the event listing, with just the user's selected events.  Done
-  // as a table with four columns: event time, duration, show name, venue name.
+  // as a table with five columns: event time, duration, spare time,
+  // show name, venue name.
 
   printf ("<TABLE BORDER=\"1\" CELLPADDING=\"1\">\n");
 
@@ -1902,19 +1964,12 @@ void WritePrintableListing ()
     {
       strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y",
         &BrokenUpDate);
-      printf ("<TR><TH COLSPAN=\"4\">%s</TH></TR>\n", TimeString);
+      printf ("<TR><TH COLSPAN=\"5\">%s</TH></TR>\n", TimeString);
     }
 
     // Print out the event itself.
 
-    strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
-
-    printf ("<TR VALIGN=\"TOP\"><TD>%s</TD><TD>%d</TD><TD>%s</TD>"
-      "<TD>%s</TD></TR>\n",
-      TimeString,
-      iEvent->second.m_ShowIter->second.m_ShowDuration / 60,
-      iEvent->second.m_ShowIter->first.c_str(),
-      iEvent->first.m_Venue->first.c_str());
+    WriteHTMLEventRow (iEvent, false /* bIncludeEditModeFeatures */);
 
     // Update the previous time but only for events which are printed.  This
     // lets us skip whole days if the user isn't going to see anything then.
@@ -1947,7 +2002,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2438,7 +2493,7 @@ int main (int argc, char **argv)
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
     struct tm BrokenUpDate;
-    char TimeString[32];
+    char TimeString[60];
 
     localtime_r (&iEvent->first.m_EventTime, &BrokenUpDate);
     strcpy (TimeString, asctime (&BrokenUpDate));
