@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.40  2014/09/02 21:21:24  agmsmith
+ * Don't print spare time if it's too big (means overnight break).
+ *
  * Revision 1.39  2014/09/02 20:48:13  agmsmith
  * Display the spare time rather than the travel time beside the show
  * duration, it's more useful.  Also don't show paths if there is
@@ -507,6 +510,11 @@ struct CommonUserSettingsStruct
     If false then the vertical bar is also acceptable on input and will be
     used on output. */
 
+  bool m_ShowPaths;
+    /* If true then display paths in the list of events, both when editing and
+    when printing.  False hides them, so you'll only see the spare time to the
+    next event number. */
+
   double m_WalkingSpeed;
     /* Walking speed from the user setting, converted to metres per second. */
 
@@ -558,7 +566,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -571,6 +579,9 @@ void ResetDynamicSettings ()
 
 void InitialiseDefaultSettings ()
 {
+  /* System level settings.  Usually not changed by the user. */
+
+  g_AllSettings["DefaultShowDuration"] = "60";
   g_AllSettings["HTMLAlreadyPickedBegin"] = "<FONT COLOR=\"SILVER\">";
   g_AllSettings["HTMLAlreadyPickedEnd"] = "</FONT>";
   g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
@@ -579,14 +590,17 @@ void InitialiseDefaultSettings ()
   g_AllSettings["HTMLFavouriteEnd"] = "</I>";
   g_AllSettings["HTMLSelectBegin"] = "<B>";
   g_AllSettings["HTMLSelectEnd"] = "</B>";
-  g_AllSettings["UseOnlyTabForFieldSeparator"] = "0";
-  g_AllSettings["DefaultLineupTime"] = "5";
-  g_AllSettings["DefaultShowDuration"] = "60";
-  g_AllSettings["DefaultTravelTime"] = "10";
-  g_AllSettings["WalkingSpeed km/h"] = "2";
   g_AllSettings["NewDayGapMinutes"] = "360";
   g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
+  g_AllSettings["UseOnlyTabForFieldSeparator"] = "0";
+
+  /* Things the user is more likely to change. */
+
+  g_AllSettings["DefaultLineupTime"] = "5";
+  g_AllSettings["DefaultTravelTime"] = "10";
+  g_AllSettings["ShowPaths"] = "1";
   g_AllSettings["TitlePrint"] = "<H1>Title for Your-Printable-Listing goes here</H1>";
+  g_AllSettings["WalkingSpeed km/h"] = "2";
 
   ResetDynamicSettings ();
 }
@@ -1081,6 +1095,23 @@ void ReadFormControls ()
     else
       iShow->second.m_IsFavourite = false;
   }
+
+  // Look for the checkbox that controls the path printing option.
+
+  iFormPair = g_FormNameValuePairs.find (
+    const_cast<char *> ("ShowPaths"));
+  if (iFormPair != g_FormNameValuePairs.end () &&
+  strcmp (iFormPair->second, "On") == 0)
+    g_AllSettings["ShowPaths"].assign ("1");
+  else
+    g_AllSettings["ShowPaths"].assign ("0");
+
+  // Look for the text box with the walking speed number.
+
+  iFormPair = g_FormNameValuePairs.find (
+    const_cast<char *> ("WalkingSpeed"));
+  if (iFormPair != g_FormNameValuePairs.end ())
+    g_AllSettings["WalkingSpeed km/h"].assign (iFormPair->second);
 }
 
 
@@ -1125,18 +1156,23 @@ void ValidateUserSettings ()
     g_AllSettings["NewDayGapMinutes"].assign ("0");
   }
 
+  g_CommonUserSettings.m_ShowPaths =
+    (0 != atoi (g_AllSettings["ShowPaths"].c_str ()));
+  g_AllSettings["ShowPaths"].assign (
+    g_CommonUserSettings.m_ShowPaths ? "1" : "0");
+
   g_CommonUserSettings.m_OnlyTab = 
     (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
   g_AllSettings["UseOnlyTabForFieldSeparator"].assign (
     g_CommonUserSettings.m_OnlyTab ? "1" : "0");
 
-  // Walking time has more conversion and limits than usual.
+  // Walking speed has more conversion and limits than usual.
 
   g_CommonUserSettings.m_WalkingSpeed =
     atof (g_AllSettings["WalkingSpeed km/h"].c_str ());
 
-  if (g_CommonUserSettings.m_WalkingSpeed <= 0.0)
-    g_CommonUserSettings.m_WalkingSpeed = 2.0;
+  if (g_CommonUserSettings.m_WalkingSpeed < 0.1)
+    g_CommonUserSettings.m_WalkingSpeed = 2.0; // Negative, invalid, etc.
   else if (g_CommonUserSettings.m_WalkingSpeed > 1079252848.8)
     g_CommonUserSettings.m_WalkingSpeed = 1079252848.8; // Speed of light.
 
@@ -1269,7 +1305,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1292,7 +1328,7 @@ void WriteHTMLForm ()
   char TimeString[40];
 
   printf ("%s\n", g_AllSettings["TitleEdit"].c_str ());
-  printf ("<FORM ACTION=\"http://www.agmsmith.ca/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
+  printf ("<FORM ACTION=\"/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
   printf ("<P ALIGN=\"CENTER\">");
   printf ("Jump to <A HREF=\"#Events\">Events</A> <A HREF=\"#Shows\">Shows</A> "
     "<A HREF=\"#Venues\">Venues</A> <A HREF=\"#RawData\">Raw Data</A>\n"
@@ -1307,8 +1343,16 @@ void WriteHTMLForm ()
     g_Statistics.m_TotalNumberOfUnseenShows,
     g_Statistics.m_TotalNumberOfUnseenFavouriteShows);
   printf ("<P ALIGN=\"CENTER\">");
-  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" VALUE=\"Update Schedule with your Changes\">\n");
-  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" VALUE=\"See Printable Schedule\">\n");
+  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"UpdateSchedule\" "
+    "VALUE=\"Update Schedule with your Changes\">\n");
+  printf ("<INPUT TYPE=\"SUBMIT\" NAME=\"PrintSchedule\" "
+    "VALUE=\"See Printable Schedule\"><BR>\n");
+  printf ("<UL><LI>Walking speed <INPUT TYPE=\"TEXT\" "
+    "NAME=\"WalkingSpeed\" SIZE=\"3\" VALUE=\"%s\">km/h.\n",
+    g_AllSettings["WalkingSpeed km/h"].c_str ());
+  printf ("<LI>Show paths between venues: "
+    "<INPUT TYPE=\"CHECKBOX\" NAME=\"ShowPaths\" VALUE=\"On\"%s> </UL>\n",
+    (g_CommonUserSettings.m_ShowPaths) ? " CHECKED" : "");
 
   // Write out the event listing with checkboxes beside each event to let the
   // user select it.  Done as a table with five columns: event time, duration,
@@ -1437,7 +1481,7 @@ void WriteHTMLForm ()
     printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
       "<TD>%s%s%s</TD><TD>%s%s%s</TD>"
       "<TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Event,%ld,%s\" "
-      "VALUE=\"On\"%s></INPUT></TD></TR>\n",
+      "VALUE=\"On\"%s></TD></TR>\n",
       StartHTML.c_str(), TimeString, EndHTML.c_str(),
       StartHTML.c_str(),
         iEvent->second.m_ShowIter->second.m_ShowDuration / 60, EndHTML.c_str(),
@@ -1453,7 +1497,8 @@ void WriteHTMLForm ()
     going to attend, and the next attended show isn't too long away
     (presumably they go home rather than needing a path). */
 
-    if (iEvent->second.m_IsSelectedByUser &&
+    if (g_CommonUserSettings.m_ShowPaths &&
+    iEvent->second.m_IsSelectedByUser &&
     iEvent->second.m_SpareTimeBeforeNextEvent <
     g_CommonUserSettings.m_NewDayGap)
     {
@@ -1521,7 +1566,7 @@ void WriteHTMLForm ()
 
     printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%d%s</TD>"
       "<TD>%s%d%s</TD><TD><INPUT TYPE=\"CHECKBOX\" NAME=\"Show,%s\" "
-      "VALUE=\"On\"%s></INPUT></TD></TR>\n",
+      "VALUE=\"On\"%s></TD></TR>\n",
       StartShowHTML.c_str(), iShow->first.c_str(), EndShowHTML.c_str(),
       StartHTML.c_str(), iShow->second.m_ShowDuration / 60, EndHTML.c_str(),
       StartHTML.c_str(), iShow->second.m_EventCount, EndHTML.c_str(),
@@ -1831,7 +1876,7 @@ void WritePrintableListing ()
 {
   struct tm BrokenUpDate;
   EventIterator iEvent;
-  char TimeString[40];
+  char TimeString[60]; // Need at least 50 for date+time in September.
 
   printf ("%s\n", g_AllSettings["TitlePrint"].c_str ());
 
@@ -1899,9 +1944,10 @@ void WritePrintableListing ()
   time_t CurrentTime;
   time (&CurrentTime);
   localtime_r (&CurrentTime, &BrokenUpDate);
-  strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T", &BrokenUpDate);
+  strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
+    &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.39 2014/09/02 20:48:13 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.40 2014/09/02 21:21:24 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2079,8 +2125,8 @@ bool FindShortestPath (VenueIterator iOriginVenue,
     // it's now officially that far from the origin.
 
     VenueIterator iCurrentVenue = *ExploreableVenues.begin ();
-    int CurrentDistance = iCurrentVenue->second.m_PathSearchTravelTimeToHere;
     ExploreableVenues.erase (ExploreableVenues.begin ());
+    int CurrentDistance = iCurrentVenue->second.m_PathSearchTravelTimeToHere;
 
     // If the destination is reached, build the path vector by backtracking
     // to the original venue and return it.  Mission accomplished.
@@ -2102,7 +2148,7 @@ bool FindShortestPath (VenueIterator iOriginVenue,
       ResultingPath.resize (PathSize, iVenueEnd);
 
       // Write the backtracked path in reverse order, so it appears in the
-      // vector from origin to destination.
+      // ResultingPath vector from origin to destination.
 
       iBacktrackVenue = iCurrentVenue;
       int iPath = PathSize;
@@ -2193,7 +2239,7 @@ void ComputeConflictsAndStatistics ()
   the events are already sorted by start time.  Only consider adjacent shows,
   don't worry about a really long show that overlaps multiple following
   shows.  Also do a shortest path search to calculate the time it takes to
-  go from one venue to another. */
+  go from one venue to another.  No more big approximations! */
 
   EventIterator iPreviousEvent = g_AllEvents.end();
 
