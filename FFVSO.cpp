@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,11 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.42  2014/09/04 22:19:12  agmsmith
+ * Moved event printing to a common function to avoid code duplication, use
+ * it for the printable timetable, which now shows spare time and optionally
+ * path information.
+ *
  * Revision 1.41  2014/09/04 20:58:20  agmsmith
  * Add an option to show or hide the paths, and a checkbox to control it.
  * Also add a text box to more easily specify the walking speed.  Avoid
@@ -578,7 +583,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1173,7 +1178,7 @@ void ValidateUserSettings ()
   g_AllSettings["ShowPaths"].assign (
     g_CommonUserSettings.m_ShowPaths ? "1" : "0");
 
-  g_CommonUserSettings.m_OnlyTab = 
+  g_CommonUserSettings.m_OnlyTab =
     (0 != atoi (g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
   g_AllSettings["UseOnlyTabForFieldSeparator"].assign (
     g_CommonUserSettings.m_OnlyTab ? "1" : "0");
@@ -1262,7 +1267,7 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
   int iPath;
   for (iPath = 0; iPath < (int) Path.size (); iPath++)
   {
-    VenueIterator iFromVenue = Path.at (iPath);
+    VenueIterator iFromVenue = Path[iPath];
 
     ResultString.append (iFromVenue->first.c_str ()); // Name of venue.
 
@@ -1271,14 +1276,15 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
 
     if (iPath < (int) Path.size () - 1)
     {
-      VenueIterator iToVenue = Path.at (iPath+1);
+      VenueIterator iToVenue = Path[iPath+1];
       TravelTimeIterator iTravelTime =
         iFromVenue->second.m_TravelTimesToOtherPlaces.find (iToVenue);
       if (iTravelTime != iFromVenue->second.m_TravelTimesToOtherPlaces.end ())
       {
-        int SecondsToNextVenue = iTravelTime->second.m_DistanceInMeters /
+        int SecondsToNextVenue = (int) (
+          iTravelTime->second.m_DistanceInMeters /
           g_CommonUserSettings.m_WalkingSpeed +
-          iTravelTime->second.m_WorstCaseDelaySeconds;
+          iTravelTime->second.m_WorstCaseDelaySeconds);
 
         sprintf (TempString, " (%0.1f", SecondsToNextVenue / 60.0);
         ResultString.append (TempString);
@@ -1317,7 +1323,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1702,7 +1708,7 @@ void WriteHTMLForm ()
   int PreviousDayOfMonth = 0;
   for (iEvent = g_AllEvents.begin(); iEvent != g_AllEvents.end(); ++iEvent)
   {
-    time_t EventTime = iEvent->first.m_EventTime;
+    EventTime = iEvent->first.m_EventTime;
     localtime_r (&EventTime, &BrokenUpDate);
 
     if (PreviousDayOfMonth != BrokenUpDate.tm_mday)
@@ -1822,7 +1828,7 @@ void WriteHTMLForm ()
     if (!iEvent->second.m_IsSelectedByUser)
       continue;
 
-    time_t EventTime = iEvent->first.m_EventTime;
+    EventTime = iEvent->first.m_EventTime;
     localtime_r (&EventTime, &BrokenUpDate);
     strftime (TimeString, sizeof (TimeString), "%c", &BrokenUpDate);
 
@@ -2002,7 +2008,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.41 2014/09/04 20:58:20 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2237,9 +2243,9 @@ bool FindShortestPath (VenueIterator iOriginVenue,
       if (TravelDistance < 0)
         continue; // Marks a non-traversable edge, wrong way on one way street.
 
-      int OriginToNextVenueTime =
+      int OriginToNextVenueTime = (int) (
         TravelDistance / g_CommonUserSettings.m_WalkingSpeed +
-        iTravelTime->second.m_WorstCaseDelaySeconds + CurrentDistance;
+        iTravelTime->second.m_WorstCaseDelaySeconds + CurrentDistance);
 
       if (iNextVenue->second.m_PathSearchTravelTimeToHere < 0 ||
       OriginToNextVenueTime < iNextVenue->second.m_PathSearchTravelTimeToHere)
