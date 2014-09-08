@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.44 2014/09/08 13:50:30 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,12 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.44  2014/09/08 13:50:30  agmsmith
+ * Include host name as specified by the user's browser in the CGI call,
+ * so that cut and paste of the web page will still call the right
+ * server name when the submit button is pressed.  Also lets us use
+ * an IP address when testing on the local network.
+ *
  * Revision 1.43  2014/09/07 23:57:33  agmsmith
  * Fix some compiler warnings and get it working on GCC 2 in BeOS again.
  *
@@ -599,7 +605,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.44 2014/09/08 13:50:30 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -624,7 +630,11 @@ void InitialiseDefaultSettings ()
   g_AllSettings["HTMLSelectBegin"] = "<B>";
   g_AllSettings["HTMLSelectEnd"] = "</B>";
   g_AllSettings["NewDayGapMinutes"] = "360";
-  g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here</H1><P>Subtitle for editing the page goes here.  Could be useful for things like the date when the schedule was last updated from the Festival's show times web page, a link to the Festival page, and that sort of thing.";
+  g_AllSettings["TitleEdit"] = "<H1>Title for Edit-Your-Schedule goes here"
+    "</H1><P>Subtitle for editing the page goes here.  Could be useful for "
+    "things like the date when the schedule was last updated from the "
+    "Festival's show times web page, a link to the Festival page, and that "
+    "sort of thing.";
   g_AllSettings["UseOnlyTabForFieldSeparator"] = "0";
 
   /* Things the user is more likely to change. */
@@ -632,7 +642,8 @@ void InitialiseDefaultSettings ()
   g_AllSettings["DefaultLineupTime"] = "5";
   g_AllSettings["DefaultTravelTime"] = "10";
   g_AllSettings["ShowPaths"] = "1";
-  g_AllSettings["TitlePrint"] = "<H1>Title for Your-Printable-Listing goes here</H1>";
+  g_AllSettings["TitlePrint"] =
+    "<H1>Title for Your-Printable-Listing goes here</H1>";
   g_AllSettings["WalkingSpeed km/h"] = "2";
 
   ResetDynamicSettings ();
@@ -1326,22 +1337,21 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
 
 void WriteHTMLHeader ()
 {
-  printf (
-"Content-Type: text/html\r\n\r\n" // Magic CGI header.
-"<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
-"<HTML>\n"
-"<HEAD>\n"
-"<TITLE>FFVSO - Fringe Theatre Festival Visitor Schedule Optimiser by "
-"AGMS</TITLE>\n"
-"<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
-"<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
-"<META NAME=\"description\" CONTENT=\"Output from the FFVSO web app.  It's "
-"used for scheduling attendance at theatre performances so that you don't "
-"miss the shows you want, and so you can pack in as many shows as possible "
-"while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $\">\n"
-"</HEAD>\n"
-"<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
+  printf ("Content-Type: text/html\r\n\r\n" // Magic CGI header.
+    "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
+    "<HTML>\n"
+    "<HEAD>\n"
+    "<TITLE>FFVSO - Fringe Theatre Festival Visitor Schedule Optimiser by "
+      "AGMS</TITLE>\n"
+    "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
+    "<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
+    "<META NAME=\"description\" CONTENT=\"Output from the FFVSO web app.  "
+      "It's used for scheduling attendance at theatre performances so that "
+      "you don't miss the shows you want, and so you can pack in as many "
+      "shows as possible while avoiding duplicates.\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.44 2014/09/08 13:50:30 agmsmith Exp agmsmith $\">\n"
+    "</HEAD>\n"
+    "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
 
 
@@ -2025,7 +2035,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.44 2014/09/08 13:50:30 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
