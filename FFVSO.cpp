@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.43  2014/09/07 23:57:33  agmsmith
+ * Fix some compiler warnings and get it working on GCC 2 in BeOS again.
+ *
  * Revision 1.42  2014/09/04 22:19:12  agmsmith
  * Moved event printing to a common function to avoid code duplication, use
  * it for the printable timetable, which now shows spare time and optionally
@@ -569,6 +572,19 @@ FormNameToValuesMap g_FormNameValuePairs;
 
 
 /******************************************************************************
+ * Miscellaneous other global variables, shouldn't be too many.
+ */
+
+static std::string g_HostNameURLFragment;
+  /* Name of this computer as the user's browser sees it, with URL text
+  prefix.  Will usually be "http://www.agmsmith.ca" or maybe a LAN IP address
+  for local testing.  If something is wrong, an empty string is used.
+  Prepended to the CGI path name "/cgi-bin/FFVSO.cgi" to make a FORM POST
+  request, in an attempt to make it absolute (cut and paste safe) and yet
+  flexible. */
+
+
+/******************************************************************************
  * Settings which are always updated, overwriting old values from the form.
  * Set the setting for the last update time to the current time and also update
  * the software version string.
@@ -583,7 +599,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1323,7 +1339,7 @@ void WriteHTMLHeader ()
 "used for scheduling attendance at theatre performances so that you don't "
 "miss the shows you want, and so you can pack in as many shows as possible "
 "while avoiding duplicates.\">\n"
-"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $\">\n"
+"<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $\">\n"
 "</HEAD>\n"
 "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1528,7 +1544,8 @@ void WriteHTMLForm ()
   char TimeString[60];
 
   printf ("%s\n", g_AllSettings["TitleEdit"].c_str ());
-  printf ("<FORM ACTION=\"/cgi-bin/FFVSO.cgi\" method=\"POST\">\n");
+  printf ("<FORM ACTION=\"%s/cgi-bin/FFVSO.cgi\" method=\"POST\">\n",
+    g_HostNameURLFragment.c_str ());
   printf ("<P ALIGN=\"CENTER\">");
   printf ("Jump to <A HREF=\"#Events\">Events</A> "
     "<A HREF=\"#Shows\">Shows</A> "
@@ -2008,7 +2025,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.42 2014/09/04 22:19:12 agmsmith Exp agmsmith $ "
+    "$Id: FFVSO.cpp,v 1.43 2014/09/07 23:57:33 agmsmith Exp agmsmith $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2379,6 +2396,21 @@ int main (int argc, char **argv)
     it will cause an out of memory problem (max 800MB user space in BeOS, minus
     overhead of web server). */
 
+  // Get the host name the user used for this web server.  We'll echo it back
+  // in the URL for POSTing the form next time.  That way, if they copy and
+  // paste the web page, it will have an absolute reference to the web server
+  // and still work.  But yet also work with a LAN IP address as the host name.
+
+  const char *pHostName;
+  pHostName = getenv ("HTTP_HOST");
+  if (pHostName != NULL)
+  {
+    g_HostNameURLFragment.assign ("http://");
+    g_HostNameURLFragment.append (pHostName);
+  }
+  else
+    g_HostNameURLFragment.clear ();
+
   /* Read the data from the web browser, via standard input.  An environment
   variable specifies the maximum length to be read, if known.  Use it so that
   multiple transfers per HTTP session work.  If not present, read until end of
@@ -2531,5 +2563,6 @@ int main (int argc, char **argv)
   g_FormNameValuePairs.clear ();
   delete [] g_InputFormText;
   g_InputFormText = NULL;
+  g_HostNameURLFragment.clear();
   return 0;
 }
