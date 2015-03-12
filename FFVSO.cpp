@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCS/FFVSO.cpp,v 1.45 2014/09/08 14:11:19 agmsmith Exp $
+ * $Header: /home/agmsmith/FFVS/RCS/FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -18,6 +18,9 @@
  * prototypes with no code) aren't needed.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.46  2014/09/08 14:17:33  agmsmith
+ * Added some META indexing keywords, Twitter addresses.
+ *
  * Revision 1.45  2014/09/08 14:11:19  agmsmith
  * Wrapped long lines of text in source code.
  *
@@ -608,7 +611,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.45 2014/09/08 14:11:19 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1355,7 +1358,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.45 2014/09/08 14:11:19 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -2041,7 +2044,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.45 2014/09/08 14:11:19 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
