@@ -1,11 +1,13 @@
 /******************************************************************************
- * $Header: /home/agmsmith/FFVS/RCS/FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.47 2015/03/12 22:00:10 agmsmith Exp $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
  * made on a web page and the results saved as a big blob of text in a text box
  * on the same web page.  Statistics showing conflicts in time, missing
  * favourite shows and other such info guide the user in selecting shows.
+ *
+ * Copyright (C) 2014 by Alexander G. M. Smith.
  *
  * Command line to compile: g++ -Wall -I. -o FFVSO.cgi FFVSO.cpp parsedate.cpp
  *
@@ -17,7 +19,23 @@
  * listed in reverse dependency order so that forward declarations (function
  * prototypes with no code) aren't needed.
  *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.47  2015/03/12 22:00:10  agmsmith
+ * Switched from private to GNU GPL license version 3.
+ *
  * Revision 1.46  2014/09/08 14:17:33  agmsmith
  * Added some META indexing keywords, Twitter addresses.
  *
@@ -611,7 +629,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.47 2015/03/12 22:00:10 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1347,7 +1365,7 @@ void WriteHTMLHeader ()
     "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n"
     "<HTML>\n"
     "<HEAD>\n"
-    "<TITLE>FFVSO - Fringe Theatre Festival Visitor Schedule Optimiser by "
+    "<TITLE>FFVSO - Fringe Theatre Festival Visitor Schedule Optimizer by "
       "AGMS</TITLE>\n"
     "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=utf-8\">\n"
     "<META NAME=\"author\" CONTENT=\"Alexander G. M. Smith\">\n"
@@ -1358,7 +1376,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.47 2015/03/12 22:00:10 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1966,6 +1984,22 @@ void WriteHTMLForm ()
 
   printf ("</UL></UL>\n");
 
+  printf ("<P><FONT SIZE=\"-1\">Software version "
+    "$Id: FFVSO.cpp,v 1.47 2015/03/12 22:00:10 agmsmith Exp $ "
+    "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
+    "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
+    "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
+    "%%3Cagmsmith@ncf.ca%%3E&amp;subject=Fringe Festival Visitor Schedule "
+    "Optimizer\">agmsmith@ncf.ca</A> or on Twitter as <A "
+    "HREF=\"http://twitter.com/agms00\">@AGMS00</A> or with the <A "
+    "HREF=\"http://twitter.com/search?q=%%23FFVSO\">#FFVSO</A> "
+    "hashtag.  This program is distributed under the GNU General Public "
+    "License, version 3, which may be available at <A "
+    "HREF=\"http://www.gnu.org/copyleft/gpl.html\">"
+    "http://www.gnu.org/copyleft/gpl.html</A>.  Source code for this program "
+    "is available on GitHub at <A HREF=\"http://github.com/agmsmith/FFVSO\">"
+    "http://github.com/agmsmith/FFVSO</A>.</FONT>\n");
+
   printf ("</FORM>\n");
 }
 
@@ -2044,7 +2078,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.46 2014/09/08 14:17:33 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.47 2015/03/12 22:00:10 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2219,7 +2253,8 @@ bool FindShortestPath (VenueIterator iOriginVenue,
   while (!ExploreableVenues.empty ())
   {
     // Remove the venue with the shortest path from the unexplored list,
-    // it's now officially that far from the origin.
+    // we're now searching that far from the origin and we know no paths
+    // shorter than that exist.
 
     VenueIterator iCurrentVenue = *ExploreableVenues.begin ();
     ExploreableVenues.erase (ExploreableVenues.begin ());
