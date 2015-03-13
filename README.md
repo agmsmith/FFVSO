@@ -15,5 +15,7 @@ The nifty feature of this web app is that you can paste in the list of events fo
 
 If you have suggestions on how to improve it, please e-mail me at agmsmith@ncf.ca or use the Twitter hashtag [#FFVSO](https://twitter.com/search?q=%23FFVSO) to discuss it.
 
-- Alex
+\- Alex
+
+![Composite screen shot of FFVSO editor mode and listing output from version 1.47](FFVSO.Screenshot.v1.47.png "FFVSO Sample Screen Shot")
 
