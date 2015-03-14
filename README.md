@@ -13,7 +13,7 @@ This is a tool to let you select shows and build your own schedule, while detect
 
 The nifty feature of this web app is that you can paste in the list of events for any festival into the text box (easiest if you obtain it in spreadsheet form). You can even make up your own web pages with pre-filled event listings (just have the FORM POST redirect to my web server), so that your friends can edit their own schedules to your festival. It also uses old (circa 1997) HTML 3.2 technology, so this should work even without Javascript.
 
-If you have suggestions on how to improve it, please e-mail me at agmsmith@ncf.ca or use the Twitter hashtag [#FFVSO](https://twitter.com/search?q=%23FFVSO) to discuss it.
+If you have suggestions on how to improve it, please e-mail me at <agmsmith@ncf.ca> or use the Twitter hashtag [#FFVSO](https://twitter.com/search?q=%23FFVSO) to discuss it.
 
 \- Alex
 
