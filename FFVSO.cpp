@@ -1,11 +1,12 @@
 /******************************************************************************
- * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.48 2015/04/23 15:37:20 agmsmith Exp $
+ * $Header: /home/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
- * made on a web page and the results saved as a big blob of text in a text box
- * on the same web page.  Statistics showing conflicts in time, missing
- * favourite shows and other such info guide the user in selecting shows.
+ * made on a web page with a checkbox for each show and the results saved as a
+ * big blob of text in a text box on the same web page.  Statistics showing
+ * conflicts in time, missing favourite shows and other such info guide the
+ * user in selecting shows.
  *
  * Copyright (C) 2014 by Alexander G. M. Smith.
  *
@@ -33,6 +34,25 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.53  2015/06/17 16:31:31  agmsmith
+ * Fine tuning help text order.
+ *
+ * Revision 1.52  2015/06/17 16:21:58  agmsmith
+ * Move help text for more relevant items to the top of the list, so
+ * the user doesn't have to read everything to get the important stuff.
+ *
+ * Revision 1.51  2015/06/05 23:37:03  agmsmith
+ * Added a sequence number after duplicate show names, updated
+ * docs too.
+ *
+ * Revision 1.50  2015/06/05 20:26:18  agmsmith
+ * Wording.
+ *
+ * Revision 1.49  2015/06/05 20:05:10  agmsmith
+ * Use different colours for events that are before vs ones that
+ * are after the selected event for a show, rather than just one
+ * colour for unselected events where the show is seen elsewhen.
+ *
  * Revision 1.48  2015/04/23 15:37:20  agmsmith
  * Added META tag for mobile phone screen size, to use actual pixel size.
  *
@@ -265,13 +285,26 @@ typedef struct ShowStruct
     only zero or one.  If more than one then it's been overscheduled, unless
     the user really wants to see it several times. */
 
+  time_t m_ScheduledFirstTime;
+    /* Date and time of the first viewing of this show.  Used when displaying
+    unselected instances of this show to decide if they're in the future or
+    past relative to the first viewing.  Only valid if m_ScheduledCount is
+    greater than zero. */
+
+  int m_ScheduledPrintCounter;
+    /* Used when printing the sequence number after the show name when there
+    are duplicate events for the show.  Set to zero at the start of printing
+    and incremented each time a selected event for the show is encountered. */
+
   int m_ShowDuration;
     /* How long does this show last?  In seconds.  Default is one hour. */
 
   std::string m_ShowURL;
     /* A link to a web page about the show. */
 
-  ShowStruct () : m_EventCount(0), m_IsFavourite(false), m_ScheduledCount(0)
+  ShowStruct () :
+    m_EventCount(0), m_IsFavourite(false),
+    m_ScheduledCount(0), m_ScheduledFirstTime(0), m_ScheduledPrintCounter(0)
   {
     // Can't use g_CommonUserSettings.m_DefaultShowDuration since this is
     // called while reading in data; the common settings are only set up after
@@ -632,7 +665,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.48 2015/04/23 15:37:20 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -648,8 +681,10 @@ void InitialiseDefaultSettings ()
   /* System level settings.  Usually not changed by the user. */
 
   g_AllSettings["DefaultShowDuration"] = "60";
-  g_AllSettings["HTMLAlreadyPickedBegin"] = "<FONT COLOR=\"SILVER\">";
-  g_AllSettings["HTMLAlreadyPickedEnd"] = "</FONT>";
+  g_AllSettings["HTMLAlreadyPickedInPastBegin"] = "<FONT COLOR=\"SILVER\">";
+  g_AllSettings["HTMLAlreadyPickedInPastEnd"] = "</FONT>";
+  g_AllSettings["HTMLAlreadyPickedInFutureBegin"] = "<FONT COLOR=\"GRAY\">";
+  g_AllSettings["HTMLAlreadyPickedInFutureEnd"] = "</FONT>";
   g_AllSettings["HTMLConflictBegin"] = "<FONT COLOR=\"RED\">";
   g_AllSettings["HTMLConflictEnd"] = "</FONT>";
   g_AllSettings["HTMLFavouriteBegin"] = "<I>";
@@ -1380,7 +1415,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.48 2015/04/23 15:37:20 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1412,17 +1447,50 @@ void WriteHTMLEventRow (EventIterator iEvent, bool bIncludeEditModeFeatures)
   std::string StartHTML;
   std::string EndHTML;
 
+  char ShowNameAppendedSequenceNumber [10];
+  ShowNameAppendedSequenceNumber [0] = 0;
+
   if (bIncludeEditModeFeatures)
   {
     if (iEvent->second.m_IsSelectedByUser)
     {
       StartHTML.append (g_AllSettings["HTMLSelectBegin"]);
       EndHTML.insert (0, g_AllSettings["HTMLSelectEnd"]);
+
+      if (iEvent->second.m_ShowIter->second.m_ScheduledCount >= 2)
+      {
+        // This show has duplicates, append a sequence number to the name.
+
+        iEvent->second.m_ShowIter->second.m_ScheduledPrintCounter++;
+
+        snprintf (ShowNameAppendedSequenceNumber,
+          sizeof (ShowNameAppendedSequenceNumber), " #%d",
+          iEvent->second.m_ShowIter->second.m_ScheduledPrintCounter);
+      }
     }
     else if (iEvent->second.m_ShowIter->second.m_ScheduledCount > 0)
     {
-      StartHTML.append (g_AllSettings["HTMLAlreadyPickedBegin"]);
-      EndHTML.insert (0, g_AllSettings["HTMLAlreadyPickedEnd"]);
+      // Unselected event which is seen at some other time.  Coloured to show
+      // that you've already seen it, so you don't pick it twice.  Two
+      // different colours are used to make it easier to change your schedule
+      // on the fly while in the middle of the festival.  If the show is seen
+      // in the future relative to this event's time, then draw it in a darker
+      // gray, suggesting that you can safely move it up to this earlier time.
+      // If the user selected a show viewing in the relative past, then drawn
+      // in lighter gray suggesting that you've already seen it by now and it's
+      // not worth selecting this event.
+
+      if (difftime(EventTime,
+      iEvent->second.m_ShowIter->second.m_ScheduledFirstTime) < 0.0)
+      {
+        StartHTML.append (g_AllSettings["HTMLAlreadyPickedInFutureBegin"]);
+        EndHTML.insert (0, g_AllSettings["HTMLAlreadyPickedInFutureEnd"]);
+      }
+      else
+      {
+        StartHTML.append (g_AllSettings["HTMLAlreadyPickedInPastBegin"]);
+        EndHTML.insert (0, g_AllSettings["HTMLAlreadyPickedInPastEnd"]);
+      }
     }
 
     if (iEvent->second.m_ShowIter->second.m_IsFavourite)
@@ -1504,16 +1572,17 @@ void WriteHTMLEventRow (EventIterator iEvent, bool bIncludeEditModeFeatures)
   // Dump out the event row.
 
   printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
-    "<TD>%s%s%s</TD><TD>%s%s%s</TD>",
+    "<TD>%s%s%s%s</TD><TD>%s%s%s</TD>",
     StartHTML.c_str(), TimeString, EndHTML.c_str(),
     StartHTML.c_str(),
       (iEvent->second.m_ShowIter->second.m_ShowDuration + 59) / 60,
       EndHTML.c_str(),
     StartHTML.c_str(), SpareTimeAfterThisShowString, EndHTML.c_str(),
     StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(),
-      EndShowHTML.c_str(),
+      ShowNameAppendedSequenceNumber, EndShowHTML.c_str(),
     StartVenueHTML.c_str(),
-      iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str());
+      iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str()
+    );
 
   // Add a checkbox if in edit mode.
 
@@ -1744,7 +1813,8 @@ void WriteHTMLForm ()
   printf ("<H2><A NAME=\"RawData\"></A>Raw Data</H2>"
     "<P>You can copy this out and save it in a text file to preserve your "
     "selections.  Paste it back in later and hit the update button to "
-    "restore your custom schedule.  If things go awry (or updated schedule "
+    "restore your custom schedule.  Or maybe just save the whole web page "
+    "or e-mail it to yourself.  If things go awry (or updated schedule "
     "times have been posted for your festival), start a fresh session for "
     "your festival and append just the lines near the end that start with "
     "\"Selected\" or \"Favourite\".\n"
@@ -1904,14 +1974,32 @@ void WriteHTMLForm ()
     "details.  In general fields are separated by tabs or vertical bar \"|\" "
     "characters.  The first field specifies what to do with the rest of the "
     "line of raw data.  Here's the list of possibilities:\n<UL>\n");
+  printf ("<LI>\"Selected\" is followed by a date & time field, and a field "
+    "naming the venue.  That specifies an event the user will be attending, "
+    "and is the preferred way of selecting events rather than the old "
+    "\"Selected\" after the event definition way (easier for the user to cut "
+    "and paste).\n");
+  printf ("<LI>\"Favourite\" is followed by the show name.  That show is then "
+    "marked as being one of the higher priority ones for the user to see.\n");
+
+  printf ("<LI>\"Setting\" is followed by the name of the setting and then "
+    "a field with the value to be used for that setting.  Here are some of "
+    "the settings you can use:\n<UL>\n");
+  printf ("<LI>TitleEdit - followed by HTML for the title text shown "
+    "while editing.  Useful for noting the date when the schedule "
+    "times were last updated with data from the festival.\n");
+  printf ("<LI>TitlePrint - followed by HTML for the title text shown "
+    "on the printable listing.  You may want to customise it with your "
+    "own name and other information.\n");
+  printf ("<LI>Bleeble - need to finish writing this documentation.\n");
+  printf ("</UL>\n");
+
   printf ("<LI>An event is defined by a date and time field followed by a "
     "show name field and then a venue name field.  There's an optional and "
     "obsolete fourth field of \"Selected\" to show that the user is going to "
     "that event.  You can also specify a date by itself (such as \"Thursday, "
     "June 19, 2014\"), which will be used as the day for the event "
     "definitions after it (they then only need to specify the time).\n");
-  printf ("<LI>\"Favourite\" is followed by the show name.  That show is then "
-    "marked as being one of the higher priority ones for the user to see.\n");
   printf ("<LI>\"ShowURL\" has a second field that names a show and a third "
     "that specifies a web link to show information about the show.\n");
   printf ("<LI>\"ShowDuration\" is followed by the show name and the duration "
@@ -1970,26 +2058,11 @@ void WriteHTMLForm ()
     "number).  It's included verbatim in the web output, so you can include "
     "HTML if you wish to do something like link to information about a bus "
     "route.\n");
-  printf ("<LI>\"Selected\" is followed by a date & time field, and a field "
-    "naming the venue.  That specifies an event the user will be attending, "
-    "and is the preferred way of selecting events rather than the old "
-    "\"Selected\" after the event definition way (easier for the user to cut "
-    "and paste).\n");
-  printf ("<LI>\"Setting\" is followed by the name of the setting and then "
-    "a field with the value to be used for that setting.  Here are some of "
-    "the settings you can use:\n<UL>\n");
-  printf ("<LI>TitleEdit - followed by HTML for the title text shown "
-    "while editing.  Useful for noting the date when the schedule "
-    "times were last updated with data from the festival.\n");
-  printf ("<LI>TitlePrint - followed by HTML for the title text shown "
-    "on the printable listing.  You may want to customise it with your "
-    "own name and other information.\n");
-  printf ("<LI>Bleeble - need to finish writing this documentation.\n");
 
-  printf ("</UL></UL>\n");
+  printf ("</UL>\n");
 
   printf ("<P><FONT SIZE=\"-1\">Software version "
-    "$Id: FFVSO.cpp,v 1.48 2015/04/23 15:37:20 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
     "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
     "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
@@ -2082,7 +2155,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.48 2015/04/23 15:37:20 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2361,12 +2434,23 @@ void ComputeConflictsAndStatistics ()
     if (!iEvent->second.m_IsSelectedByUser)
       continue;
 
-    iEvent->second.m_ShowIter->second.m_ScheduledCount++;
+    ShowIterator iShow = iEvent->second.m_ShowIter;
+
+    if (iShow->second.m_ScheduledCount <= 0) // First one?
+      iShow->second.m_ScheduledFirstTime = iEvent->first.m_EventTime;
+    else // Keep earliest start time.
+    {
+      if (difftime(iEvent->first.m_EventTime,
+      iShow->second.m_ScheduledFirstTime) < 0.0)
+        iShow->second.m_ScheduledFirstTime = iEvent->first.m_EventTime;
+    }
+
+    iShow->second.m_ScheduledCount++;
 
     g_Statistics.m_TotalNumberOfEventsScheduled++;
 
     g_Statistics.m_TotalSecondsWatched +=
-      iEvent->second.m_ShowIter->second.m_ShowDuration;
+      iShow->second.m_ShowDuration;
   }
 
   /* Look for conflicts, where the start time of a show is inside the time
