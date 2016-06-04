@@ -6,9 +6,12 @@
 <META NAME="viewport" CONTENT="width=device-width, initial-scale=1">
 <META NAME="author" CONTENT="Alexander G. M. Smith">
 <META NAME="description" CONTENT="A web app for scheduling attendance at theatre performances so that you don't miss the shows you want, and pack in as many as possible while avoiding duplicates.">
-<META NAME="version" CONTENT="$Id: Ottawa2016FringeFestivalOptimiserStartHere.html,v 1.4 2016/05/31 16:08:36 agmsmith Exp $">
+<META NAME="version" CONTENT="$Id: Ottawa2016FringeFestivalOptimiserStartHere.html,v 1.5 2016/06/04 20:37:04 agmsmith Exp $">
 <!--
 ; $Log: Ottawa2016FringeFestivalOptimiserStartHere.html,v $
+; Revision 1.5  2016/06/04 20:37:04  agmsmith
+; Added travel time measurements from this morning's 3h mapping expedition.
+;
 ; Revision 1.4  2016/05/31 16:08:36  agmsmith
 ; Added Venue URLs.
 ;
@@ -30,7 +33,7 @@
 <P>If you're updating an existing schedule then refresh this web page, append your "Selected" and "Favourite" lines from your old schedule's data box to the end of the text in this box, and click Update Schedule.
 <P><INPUT TYPE="SUBMIT" VALUE="Update Schedule">
 <P><TEXTAREA NAME="SavedState" cols=80 rows=40>
-Setting|TitleEdit|&lt;H1&gt;Ottawa 2016 Fringe Festival Schedule Editor&lt;/H1&gt;&lt;P&gt;Showtime data from &lt;A HREF="http://ottawafringe.com/schedule/"&gt;http://ottawafringe.com/schedule/&lt;/A&gt; as of May 29, 2016 (travel times out of date).  You may wish to check for updates, or nag me (agmsmith@ncf.ca, @AGMS00) if I missed something.
+Setting|TitleEdit|&lt;H1&gt;Ottawa 2016 Fringe Festival Schedule Editor&lt;/H1&gt;&lt;P&gt;Showtime data from &lt;A HREF="http://ottawafringe.com/schedule/"&gt;http://ottawafringe.com/schedule/&lt;/A&gt; as of May 29, 2016.  Now with travel times reflecting major Ottawa U construction (you have to go behind Academic hall and up a side alley and through a maze of fences to get to the door, not to mention a much longer path to Tabaret lawn).&lt;P&gt;You may wish to check for updates, or nag me (agmsmith@ncf.ca, @AGMS00) if I missed something.
 Setting|TitlePrint|&lt;H1&gt;My Ottawa 2016 Fringe Festival Schedule&lt;/H1&gt;
 Wednesday, June 15, 2016
 19:00|Preview Night|Arts Court Theatre
@@ -495,6 +498,7 @@ ShowURL|Preview Night|http://ottawafringe.com/parties/
 ShowURL|Rideshares &amp; Rope Swings|http://ottawafringe.com/shows/rideshares-rope-swings/
 ShowURL|Saor (Free)|http://ottawafringe.com/shows/saor-free/
 ShowURL|Saturday Morning Cartoons|http://ottawafringe.com/parties/
+ShowDuration|Saturday Morning Cartoons|120
 ShowURL|Searching for Party|http://ottawafringe.com/shows/searching-for-party/
 ShowURL|Sh!t I'm In Love With You Again|http://ottawafringe.com/shows/sht-im-in-love-with-you-again/
 ShowURL|Shakespeare Crackpot|http://ottawafringe.com/shows/shakespeare-crackpot/
@@ -511,33 +515,50 @@ ShowURL|Well Isn't This Super... (Marvellous Man IV: The Return of Marvellous Ma
 ShowURL|raw footage|http://ottawafringe.com/shows/raw-footage/
 VenueURL|Academic Hall|http://ottawafringe.com/venue/venue-2/
 TravelTime|Academic Hall|Studio Léonard-Beaulne|12
-TravelTime|Arts Court Entrance|Academic Hall|183|87|via Arts Court parking lot
+TravelTime|Arts Court Entrance|Academic Hall|255|91|via Nicholas past Jail (Daly/Waller route is 7m shorter &amp; no stairs, but unpleasant)
 TravelTime|Arts Court Entrance|Arts Court Library|53|69|via Elevator A
+TravelTime|Arts Court Entrance|ODD Box|49|69|via Elevator A
 TravelTime|Arts Court Entrance|Arts Court Theatre|63|59|via Elevator B
 TravelTime|Arts Court Entrance|Bytown Museum|641|333|via Rideau Centre Mall (stay on ground floor)
+TravelTime|Arts Court Entrance|Club SAW|100
+TravelTime|Arts Court Entrance|Daly &amp; King Edward|271|92
 TravelTime|Arts Court Entrance|The Tea Party|403|352|Daly/Nicholas/Besserer/Dalhousie/York
 TravelTime|Arts Court Library|ODD Box|15
 TravelTime|Arts Court Library|The Courtroom|6
+TravelTime|Arts Court Studio|Arts Court Theatre|5
 VenueURL|Arts Court Theatre|http://ottawafringe.com/venue/venue-1/
 TravelTime|Arts Court Theatre|Arts Court Library|29|0|via stairs
 TravelTime|Arts Court Theatre|ODD Box|25|0|via stairs
 TravelTime|Arts Court Theatre|The Courtroom|23|0|via stairs
 TravelTime|Bytown Museum|The Tea Party|778|276|Canal Path (allow more time if a steep hill and four flights of stairs slows you down)/Rideau/Sussex (cross to south side at George)/York
 VenueURL|Café Nostalgica|http://ottawafringe.com/venue/byov-c/
+TravelTime|Cumberland &amp; Laurier|Café Nostalgica|80|22
+TravelTime|Cumberland &amp; Laurier|Tabaret Lawn|87
+TravelTime|Cumberland &amp; Laurier|The Royal Oak|71|35
+TravelTime|Daly &amp; King Edward|La Nouvelle Scène|254|83
 VenueURL|La Nouvelle Scène|http://ottawafringe.com/venue/venue-5/
+TravelTime|La Nouvelle Scène|York &amp; Dalhousie|300|241|slow traffic lights
 VenueURL|ODD Box|http://ottawafringe.com/venue/venue-4/
 VenueURL|SPAO|http://ottawafringe.com/venue/byov-f/
 TravelTime|St. Paul’s Eastern United|Arts Court Entrance|167|90|via Waller &amp; Daly
 VenueURL|Studio Léonard-Beaulne|http://ottawafringe.com/venue/venue-3/
-TravelTime|Studio Léonard-Beaulne|Bronfman Amphitheatre|157|84
+TravelTime|Studio Léonard-Beaulne|Bronfman Amphitheatre|157|84|Old times from before 2016 construction
+TravelTime|Studio Léonard-Beaulne|Cumberland &amp; Laurier|157
+TravelTime|Studio Léonard-Beaulne|Daly &amp; King Edward|253
 TravelTime|Studio Léonard-Beaulne|St. Paul’s Eastern United|171
 TravelTime|Studio Léonard-Beaulne|Studio 311|100|0|five floors of stairs
+TravelTime|Studio Léonard-Beaulne|Wilbrod &amp; King Edward|189
 VenueURL|Tabaret Lawn|http://ottawafringe.com/venue/byov-b/
 VenueURL|The Courtroom|http://ottawafringe.com/venue/byov-a/
 VenueURL|The Royal Oak|http://ottawafringe.com/venue/byov-d/
+TravelTime|The Royal Oak|Wilbrod &amp; King Edward|128|37
 TravelTime|The Tea Party|Arts Court Entrance|403|352|York/Dalhousie/Besserer/Nicholas/Daly
 TravelTime|The Tea Party|Bytown Museum|778|276|York/Sussex (cross to north side at George)/Rideau/Canal Path
+TravelTime|Wilbrod &amp; King Edward|Daly &amp; King Edward|111|36
 VenueURL|William Square|http://ottawafringe.com/venue/byov-e/
+TravelTime|York &amp; Dalhousie|Arts Court Entrance|311|263|via Les Suites Hotel alley to Dalhousie
+TravelTime|York &amp; Dalhousie|SPAO|354|199|SPAO door at 168 Dalhousie
+TravelTime|York &amp; Dalhousie|William Square|81
 </TEXTAREA>
 </FORM>
 </BODY>
