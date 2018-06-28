@@ -6,7 +6,7 @@
 <META NAME="viewport" CONTENT="width=device-width, initial-scale=1">
 <META NAME="author" CONTENT="Alexander G. M. Smith">
 <META NAME="description" CONTENT="A web app for scheduling attendance at theatre performances so that you don't miss the shows you want, and pack in as many as possible while avoiding duplicates.">
-<META NAME="version" CONTENT="$Id: Ottawa2018FringeFestivalOptimiserStartHere.html,v 1.18 2018/06/24 15:54:13 agmsmith Exp $">
+<META NAME="version" CONTENT="$Id: Ottawa2018FringeFestivalOptimiserStartHere.html,v 1.19 2018/06/27 19:29:57 agmsmith Exp $">
 </HEAD>
 <BODY BGCOLOR="WHITE" TEXT="BLACK">
 <H1>Ottawa 2018 Fringe Theatre Festival Visitor Schedule Optimiser</H1>
@@ -16,7 +16,7 @@
 <P>If you're updating an existing schedule then refresh this web page, append your "Selected" and "Favourite" lines from your old schedule's data box to the end of the text in this box, and click Update Schedule.
 <P><INPUT TYPE="SUBMIT" VALUE="Update Schedule">
 <P><TEXTAREA NAME="SavedState" cols=80 rows=40>
-Setting|TitleEdit|&lt;H1&gt;Ottawa 2018 Fringe Festival Schedule Editor&lt;/H1&gt;&lt;P&gt;Show data from &lt;A HREF="http://ottawafringe.com/schedule/"&gt;http://ottawafringe.com/schedule/&lt;/A&gt; as of June 24, 2018.  Data version is $Revision: 1.18 $&lt;P&gt;You may wish to check for updates, or nag me (agmsmith@ncf.ca, &lt;A HREF="http://www.agmsmith.ca/index.html"&gt;www.agmsmith.ca&lt;/A&gt;, @AGMS00) if I missed something.
+Setting|TitleEdit|&lt;H1&gt;Ottawa 2018 Fringe Festival Schedule Editor&lt;/H1&gt;&lt;P&gt;Show data from &lt;A HREF="http://ottawafringe.com/schedule/"&gt;http://ottawafringe.com/schedule/&lt;/A&gt; as of June 24, 2018.  Data version is $Revision: 1.19 $&lt;P&gt;You may wish to check for updates, or nag me (agmsmith@ncf.ca, &lt;A HREF="http://www.agmsmith.ca/index.html"&gt;www.agmsmith.ca&lt;/A&gt;, @AGMS00) if I missed something.
 Setting|TitlePrint|&lt;H1&gt;My Ottawa 2018 Fringe Festival Schedule&lt;/H1&gt;
 Wednesday, June 13, 2018
 19:00|Preview Night|Arts Court Theatre
@@ -380,13 +380,13 @@ Sunday, June 24, 2018
 18:30|Rocko and Nakota: Tales From the Land|ODD Box
 19:00|Faris Who Talks To Rats|Academic Hall
 19:00|Heirloom Toys Circus|La Nouvelle Scène Studio A
-19:00|BEST OF FEST|Studio Léonard-Beaulne
-19:30|BEST OF FEST|Arts Court Theatre
+19:00|The Geography Teacher’s Orders|Studio Léonard-Beaulne
+19:30|INTERSTELLAR ELDER: Badass Grandma in Space|Arts Court Theatre
 19:30|The Music Buffet with Rory Gardiner|La Nouvelle Scène Studio B
-20:00|BEST OF FEST|ODD Box
-20:30|BEST OF FEST|Academic Hall
-21:00|BEST OF FEST|La Nouvelle Scène Studio B
-21:30|BEST OF FEST|La Nouvelle Scène Studio A
+20:00|A Brief History of Petty Crime|ODD Box
+20:30|Josephine, a burlesque cabaret dream play|Academic Hall
+21:00|Agent Madeleine|La Nouvelle Scène Studio B
+21:30|The Last Spartan|La Nouvelle Scène Studio A
 22:00|Closing Night Awards Party|Arts Court Theatre
 ShowDuration|#Faustus|49
 ShowURL|#Faustus|http://ottawafringe.com/shows/faustus/
@@ -404,7 +404,6 @@ ShowDuration|Anjou|41
 ShowURL|Anjou|http://ottawafringe.com/shows/anjou/
 ShowDuration|Aspergers: A Tale of a Social Misfit|38
 ShowURL|Aspergers: A Tale of a Social Misfit|http://ottawafringe.com/shows/aspergers-a-tale-of-a-social-misfit/
-ShowURL|BEST OF FEST|http://ottawafringe.com/bestof/
 ShowDuration|Banned In The USA|65
 ShowURL|Banned In The USA|http://ottawafringe.com/shows/banned-in-the-usa/
 ShowDuration|Becoming|24
@@ -424,6 +423,7 @@ ShowDuration|Dating Myself|54
 ShowURL|Dating Myself|http://ottawafringe.com/shows/dating-myself/
 ShowDuration|Drawn That Way|50
 ShowURL|Drawn That Way|http://ottawafringe.com/shows/drawn-that-way/
+ShowDuration|Drunk Girl|64
 ShowURL|Drunk Girl|http://ottawafringe.com/shows/drunk-girl/
 ShowDuration|Faris Who Talks To Rats|61
 ShowURL|Faris Who Talks To Rats|http://ottawafringe.com/shows/faris-who-talks-to-rats/
@@ -452,7 +452,7 @@ ShowDuration|Karma Karma Karma Karma Karma Chamedian|63
 ShowURL|Karma Karma Karma Karma Karma Chamedian|http://ottawafringe.com/shows/karma-karma-karma-karma-karma-chamedian/
 ShowDuration|Lip Service|38
 ShowURL|Lip Service|http://ottawafringe.com/shows/lip-service/
-ShowDuration|Lungs|75
+ShowDuration|Lungs|77
 ShowURL|Lungs|http://ottawafringe.com/shows/lungs/
 ShowURL|MAL|http://ottawafringe.com/shows/mal/
 ShowURL|Ottawa Stand-up Comedy Showcase|http://ottawafringe.com/shows/ottawa-stand-up-comedy-showcase/
@@ -480,11 +480,13 @@ ShowDuration|The Brotherhood|50
 ShowURL|The Brotherhood|http://ottawafringe.com/shows/the-brotherhood/
 ShowDuration|The Date|35
 ShowURL|The Date|http://ottawafringe.com/shows/the-date/
+ShowDuration|The Drunk Text|55
 ShowURL|The Drunk Text|http://ottawafringe.com/shows/the-drunk-text/
 ShowDuration|The Geography Teacher’s Orders|58
 ShowURL|The Geography Teacher’s Orders|http://ottawafringe.com/shows/the-geography-teachers-orders/
 ShowDuration|The Last Spartan|64
 ShowURL|The Last Spartan|http://ottawafringe.com/shows/the-last-spartan/
+ShowDuration|The Music Buffet with Rory Gardiner|59
 ShowURL|The Music Buffet with Rory Gardiner|http://ottawafringe.com/shows/the-music-buffet-with-rory-gardiner/
 ShowDuration|The Shit Hot Shit Show|50
 ShowURL|The Shit Hot Shit Show|http://ottawafringe.com/shows/the-shit-hot-shit-show/
@@ -565,6 +567,10 @@ TravelTime|York &amp; Dalhousie|William Square|81
 <H3>Revision History</H3>
 <PRE>
 ; $Log: Ottawa2018FringeFestivalOptimiserStartHere.html,v $
+; Revision 1.19  2018/06/27 19:29:57  agmsmith
+; Added Best of Fest winners to their time slots, run times added
+; for the last four shows I saw.
+;
 ; Revision 1.18  2018/06/24 15:54:13  agmsmith
 ; Updated actual show run times for 6 shows (refining some like
 ; Banned in the USA which now only goes over by 5 minutes).
