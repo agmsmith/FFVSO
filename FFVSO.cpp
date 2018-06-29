@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -34,6 +34,9 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.55  2018/06/29 16:05:18  agmsmith
+ * Typo in HTML list coding.
+ *
  * Revision 1.54  2018/06/29 15:44:36  agmsmith
  * Added Luckiness percent, modifies the worst case delays for people
  * who always get green traffic lights or ready elevators.
@@ -676,7 +679,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1445,7 +1448,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1709,7 +1712,7 @@ void WriteHTMLForm ()
   printf ("<UL><LI>Walking speed <INPUT TYPE=\"TEXT\" "
     "NAME=\"WalkingSpeed\" SIZE=\"3\" VALUE=\"%s\">km/h.\n",
     g_AllSettings["WalkingSpeed km/h"].c_str ());
-  printf ("<UL><LI>Luckiness <INPUT TYPE=\"TEXT\" "
+  printf ("<LI>Luckiness <INPUT TYPE=\"TEXT\" "
     "NAME=\"Luckiness\" SIZE=\"3\" VALUE=\"%s\">percent (use 0%% for worst "
     "case delays).\n",
     g_AllSettings["Luckiness Percent"].c_str ());
@@ -2097,7 +2100,7 @@ void WriteHTMLForm ()
   printf ("</UL>\n");
 
   printf ("<P><FONT SIZE=\"-1\">Software version "
-    "$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
     "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
     "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
@@ -2190,7 +2193,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
