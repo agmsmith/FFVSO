@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -34,6 +34,10 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.54  2018/06/29 15:44:36  agmsmith
+ * Added Luckiness percent, modifies the worst case delays for people
+ * who always get green traffic lights or ready elevators.
+ *
  * Revision 1.53  2015/06/17 16:31:31  agmsmith
  * Fine tuning help text order.
  *
@@ -351,7 +355,8 @@ struct TravelTimeStruct
     next time it turns green.  Elevators measured by sending the elevator to
     the furthest floor and seeing how long it takes to come back.  Though in
     reality, the people taking the elevator can slow it down even more than
-    that worst case time. */
+    that worst case time.  Modified by the inverse Luckiness percent, for
+    people who ignore red traffic lights or are actually lucky. */
 
   std::string m_Notes;
     /* Extra notes about this path segment.  Such as "take elevator B".  Can
@@ -586,6 +591,12 @@ struct CommonUserSettingsStruct
     /* Number of seconds spent waiting in line to buy tickets, converted from
     the user setting.  Assumed to be the same at all venues. */
 
+  int m_Luckiness;
+    /* Percentage of luckiness the user has, from 0 to 100.  0 means use worst
+    case timing.  100 means assume all traffic lights are green (or the user
+    crosses illegally on red lights, or runs to catch lights before they turn
+    red), and the elevator is always ready for them. */
+
   int m_NewDayGap;
     /* Number of seconds between the start times of events which qualifies it
     as a new day.  Assume the user goes home at that time to sleep, so there
@@ -665,7 +676,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1212,6 +1223,13 @@ void ReadFormControls ()
   else
     g_AllSettings["ShowPaths"].assign ("0");
 
+  // Look for the text box with the luckiness percent number.
+
+  iFormPair = g_FormNameValuePairs.find (
+    const_cast<char *> ("Luckiness"));
+  if (iFormPair != g_FormNameValuePairs.end ())
+    g_AllSettings["Luckiness Percent"].assign (iFormPair->second);
+
   // Look for the text box with the walking speed number.
 
   iFormPair = g_FormNameValuePairs.find (
@@ -1237,6 +1255,17 @@ void ValidateUserSettings ()
     g_CommonUserSettings.m_LineupTime = 0;
     g_AllSettings["DefaultLineupTime"].assign ("0");
   }
+
+  // Luckiness is an integer from 0 to 100.
+
+  g_CommonUserSettings.m_Luckiness =
+    atoi (g_AllSettings["Luckiness Percent"].c_str ());
+  if (g_CommonUserSettings.m_Luckiness < 0)
+    g_CommonUserSettings.m_Luckiness = 0;
+  else if (g_CommonUserSettings.m_Luckiness > 100)
+    g_CommonUserSettings.m_Luckiness = 100;
+  sprintf (TempString, "%d", g_CommonUserSettings.m_Luckiness);
+  g_AllSettings["Luckiness Percent"].assign (TempString);
 
   g_CommonUserSettings.m_DefaultShowDuration =
     60 * atoi (g_AllSettings["DefaultShowDuration"].c_str ());
@@ -1373,7 +1402,8 @@ void WritePathToString (PathVector &Path, std::string &ResultString)
         int SecondsToNextVenue = (int) (
           iTravelTime->second.m_DistanceInMeters /
           g_CommonUserSettings.m_WalkingSpeed +
-          iTravelTime->second.m_WorstCaseDelaySeconds);
+          iTravelTime->second.m_WorstCaseDelaySeconds *
+          (100 - g_CommonUserSettings.m_Luckiness) / 100);
 
         sprintf (TempString, " (%0.1f", SecondsToNextVenue / 60.0);
         ResultString.append (TempString);
@@ -1415,7 +1445,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1679,6 +1709,10 @@ void WriteHTMLForm ()
   printf ("<UL><LI>Walking speed <INPUT TYPE=\"TEXT\" "
     "NAME=\"WalkingSpeed\" SIZE=\"3\" VALUE=\"%s\">km/h.\n",
     g_AllSettings["WalkingSpeed km/h"].c_str ());
+  printf ("<UL><LI>Luckiness <INPUT TYPE=\"TEXT\" "
+    "NAME=\"Luckiness\" SIZE=\"3\" VALUE=\"%s\">percent (use 0%% for worst "
+    "case delays).\n",
+    g_AllSettings["Luckiness Percent"].c_str ());
   printf ("<LI>Show paths between venues: "
     "<INPUT TYPE=\"CHECKBOX\" NAME=\"ShowPaths\" VALUE=\"On\"%s>\n",
     (g_CommonUserSettings.m_ShowPaths) ? " CHECKED" : "");
@@ -1991,7 +2025,7 @@ void WriteHTMLForm ()
   printf ("<LI>TitlePrint - followed by HTML for the title text shown "
     "on the printable listing.  You may want to customise it with your "
     "own name and other information.\n");
-  printf ("<LI>Bleeble - need to finish writing this documentation.\n");
+  printf ("<LI>ToDo - need to finish writing this documentation.\n");
   printf ("</UL>\n");
 
   printf ("<LI>An event is defined by a date and time field followed by a "
@@ -2021,7 +2055,8 @@ void WriteHTMLForm ()
     "want to, you can add a VenueURL for intermediate places that points to, "
     "for example, a subway station web page."
     "<P>The user's walking speed setting will be combined with the distance "
-    "to get their walking time.  The worst case delay time is added to the "
+    "to get their walking time.  The worst case delay time (multiplied by "
+    "(100 - Luckiness) percent) is added to the "
     "walking time to get the time it takes to travel between venues.  If we "
     "can't find a path between the venues, the DefaultTravelTime setting is "
     "used for the travel time instead.  The setting for time spent in "
@@ -2062,7 +2097,7 @@ void WriteHTMLForm ()
   printf ("</UL>\n");
 
   printf ("<P><FONT SIZE=\"-1\">Software version "
-    "$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
     "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
     "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
@@ -2155,7 +2190,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.53 2015/06/17 16:31:31 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.54 2018/06/29 15:44:36 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2335,7 +2370,6 @@ bool FindShortestPath (VenueIterator iOriginVenue,
 
     VenueIterator iCurrentVenue = *ExploreableVenues.begin ();
     ExploreableVenues.erase (ExploreableVenues.begin ());
-    int CurrentDistance = iCurrentVenue->second.m_PathSearchTravelTimeToHere;
 
     // If the destination is reached, build the path vector by backtracking
     // to the original venue and return it.  Mission accomplished.
@@ -2393,7 +2427,9 @@ bool FindShortestPath (VenueIterator iOriginVenue,
 
       int OriginToNextVenueTime = (int) (
         TravelDistance / g_CommonUserSettings.m_WalkingSpeed +
-        iTravelTime->second.m_WorstCaseDelaySeconds + CurrentDistance);
+        iTravelTime->second.m_WorstCaseDelaySeconds *
+          (100 - g_CommonUserSettings.m_Luckiness) / 100 +
+        iCurrentVenue->second.m_PathSearchTravelTimeToHere);
 
       if (iNextVenue->second.m_PathSearchTravelTimeToHere < 0 ||
       OriginToNextVenueTime < iNextVenue->second.m_PathSearchTravelTimeToHere)
