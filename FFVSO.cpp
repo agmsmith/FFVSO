@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $
  *
  * This is a web server CGI program for selecting events (shows) at the Ottawa
  * Fringe Theatre Festival to make up an individual's custom list.  Choices are
@@ -34,6 +34,16 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.58  2019/05/16 21:23:45  agmsmith
+ * Preserve https or http choice in the accessing URL when posting the form.
+ *
+ * Revision 1.57  2019/05/16 19:35:06  agmsmith
+ * Changed input processing to handle events without a start time.
+ *
+ * Revision 1.56  2019/05/16 18:22:31  agmsmith
+ * Updated documentation with new event format (optional time),
+ * WIP in code to handle it.
+ *
  * Revision 1.55  2018/06/29 16:05:18  agmsmith
  * Typo in HTML list coding.
  *
@@ -656,12 +666,13 @@ FormNameToValuesMap g_FormNameValuePairs;
  */
 
 static std::string g_HostNameURLFragment;
-  /* Name of this computer as the user's browser sees it, with URL text
-  prefix.  Will usually be "http://www.agmsmith.ca" or maybe a LAN IP address
-  for local testing.  If something is wrong, an empty string is used.
-  Prepended to the CGI path name "/cgi-bin/FFVSO.cgi" to make a FORM POST
-  request, in an attempt to make it absolute (cut and paste safe) and yet
-  flexible. */
+  /* Name of this computer as the user's browser sees it, with URL text prefix.
+  Will usually be "http://www.agmsmith.ca" or maybe a LAN IP address for local
+  testing.  If something is wrong, an empty string is used.  Prepended to the
+  CGI path name "/cgi-bin/FFVSO.cgi" to make a FORM POST request, in an attempt
+  to make it absolute (cut and paste safe) and yet flexible.  Also lets us
+  support both HTTP and HTTPS, depending on how the user arrived at the web
+  page. */
 
 
 /******************************************************************************
@@ -679,7 +690,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -858,16 +869,16 @@ void BuildFormNameAndValuePairsFromFormInput ()
  * web page (http://ottawafringe.com/schedule/), which has lines listing each
  * time/show/venue separted by days of the week subtitles.  Conveniently it's a
  * table so when you copy the text out, the fields are separated by tab
- * characters.
+ * characters.  Though in later years it becomes mangled a bit and needs some
+ * manual editing to get it into shape.
  *
- * We look for a time or keyword first.  If it's just a date (no more tab
- * separated fields after it) then it becomes the current default date.  If
- * it's a keyword, then the number of fields after it depend on the keyword.
- * If it's a time with three or more fields in total, then it's an event, where
- * the first field is the time (combine with the default date to get an
- * absolute time), the second field is the show name and the third is the venue
- * name, and the fourth is the optional selected flag ("Selected" to pick the
- * event, anything else or missing to not pick it).
+ * We look for a keyword field first.  If it's a known keyword, then the number
+ * of fields after it depend on the keyword.  Second, if it's just one field
+ * (no more tab separated fields after it) then it's a date or time which
+ * becomes the current default date/time.  Finally, it may be an event, which
+ * has an optional date/time field (combine with the default date to get an
+ * absolute time), then a show name field and finally a venue name.  If there
+ * are extra fields, then it isn't a valid event and is ignored.
  *
  * The keywords are used for storing extra information.  See near the end of
  * WriteHTMLForm() for their documentation.
@@ -949,51 +960,245 @@ void LoadStateInformation (const char *pBuffer)
 
     if (nFields > 0 && !aFields[0].empty ())
     {
-      time_t NewDate = parsedate (aFields[0].c_str(), RunningDate);
-      if (NewDate > 0) // Got a valid date.
+      const char *kWrongNumberOfFields =
+        "<P><B>Wrong number of fields</B> (%d) after \"%s\" keyword,"
+        "ignoring it.\n";
+
+      // Look for keywords in the first field.
+      if (aFields[0] == "Favourite")
       {
-        localtime_r (&NewDate, &BrokenUpDate);
-#if 0
-        printf ("Converted date \"%s\" to %s", aFields[0].c_str(),
-          asctime (&BrokenUpDate));
-#endif
-        // Update the running date, so subsequent times are based off this one.
-        // Useful if the date is a subtitle like "Thursday, June 19" and
-        // subsequent entries just list the hour and minute, in increasing
-        // order.
-
-        RunningDate = NewDate;
-
-        // Load an event, if we have enough fields to define one, otherwise
-        // it's just a date update.  Need show and venue after the date field,
-        // and optionally "Selected" for backwards compatibility reasons.
-
-        if (nFields >= 3)
+        if (nFields != 2)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
         {
+          // Favourite keyword is followed by a field identifying a show.
+
+          ShowIterator iShow = g_AllShows.find (aFields[1]);
+          if (iShow != g_AllShows.end ())
+            iShow->second.m_IsFavourite = true;
+          else
+            printf ("<P><B>Unknown show name</B> \"%s\" after Favourite "
+              "keyword, ignoring it.\n", aFields[1].c_str ());
+        }
+      }
+      else if (aFields[0] == "Setting")
+      {
+        if (nFields != 3)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
+        {
+          // Hopefully the important settings were written near the beginning,
+          // like the one which controls parsing of tabs and vertical bars.
+
+          g_AllSettings[aFields[1]] = aFields[2];
+
+          bOnlyTab = (0 != atoi (
+            g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
+        }
+      }
+      else if (aFields[0] == "ShowURL")
+      {
+        if (nFields != 3)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
+        {
+          ShowIterator iShow = g_AllShows.find (aFields[1]);
+          if (iShow != g_AllShows.end ())
+            iShow->second.m_ShowURL.assign (aFields[2]);
+          else
+            printf ("<P><B>Unknown show name</B> \"%s\" after ShowURL "
+              "keyword, ignoring it.\n", aFields[1].c_str ());
+        }
+      }
+      else if (aFields[0] == "ShowDuration")
+      {
+        if (nFields != 3)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
+        {
+          ShowIterator iShow = g_AllShows.find (aFields[1]);
+          if (iShow != g_AllShows.end ())
+            iShow->second.m_ShowDuration = 60 * atoi (aFields[2].c_str ());
+          else
+            printf ("<P><B>Unknown show name</B> \"%s\" after ShowDuration "
+              "keyword, ignoring it.\n", aFields[1].c_str ());
+        }
+      }
+      else if (aFields[0] == "VenueURL")
+      {
+        if (nFields != 3)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
+        {
+          // If the venue isn't found, create a default record for it, so
+          // non-show venues (street corners used in path finding) can have a
+          // URL too.
+
+          g_AllVenues[aFields[1]].m_VenueURL.assign (aFields[2]);
+        }
+      }
+      else if (aFields[0] == "TravelTime")
+      {
+        if (nFields < 4)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
+        {
+          VenueIterator iVenueFrom = g_AllVenues.find (aFields[1]);
+          if (iVenueFrom == g_AllVenues.end () && !aFields[1].empty())
+          {
+            VenueRecord NewVenue;
+            VenueMap::value_type NewVenuePair (aFields[1], NewVenue);
+            std::pair<VenueIterator, bool> InsertVenueResult (
+              g_AllVenues.insert (NewVenuePair));
+            iVenueFrom = InsertVenueResult.first;
+          }
+
+          VenueIterator iVenueTo = g_AllVenues.find (aFields[2]);
+          if (iVenueTo == g_AllVenues.end () && !aFields[2].empty())
+          {
+            VenueRecord NewVenue;
+            VenueMap::value_type NewVenuePair (aFields[2], NewVenue);
+            std::pair<VenueIterator, bool> InsertVenueResult (
+              g_AllVenues.insert (NewVenuePair));
+            iVenueTo = InsertVenueResult.first;
+          }
+
+          int Distance = atoi (aFields[3].c_str ());
+
+          int WorstDelay = 0;
+          if (nFields >= 5)
+            WorstDelay = atoi (aFields[4].c_str ());
+
+          const char *pNotes = "";
+          if (nFields >= 6)
+            pNotes = aFields[5].c_str ();
+
+          if (iVenueFrom != g_AllVenues.end () &&
+          iVenueTo != g_AllVenues.end ())
+          {
+            TravelTimeRecord NewTravelTime;
+            NewTravelTime.m_DistanceInMeters = Distance;
+            NewTravelTime.m_WorstCaseDelaySeconds = WorstDelay;
+            NewTravelTime.m_Notes.assign (pNotes);
+
+            TravelTimeMap::value_type NewTravelTimePair (
+              iVenueTo, NewTravelTime);
+
+            std::pair<TravelTimeIterator, bool> InsertTravelTimeResult (
+              iVenueFrom->second.m_TravelTimesToOtherPlaces.insert
+              (NewTravelTimePair));
+            if (!InsertTravelTimeResult.second)
+              printf (
+                "<P><B>Already have a TravelTime entry</B> from %s to %s, "
+                "ignoring redundant entry.\n",
+                aFields[1].c_str (), aFields[2].c_str ());
+          }
+          else
+            printf ("<P><B>Empty venue name(s)</B> after TravelTime "
+              "keyword, ignoring it.\n");
+        }
+      }
+      else if (aFields[0] == "Selected")
+      {
+        if (nFields != 3)
+          printf (kWrongNumberOfFields, nFields, aFields[0].c_str ());
+        else
+        {
+          time_t SelectedDate = parsedate (aFields[1].c_str(), RunningDate);
+          if (SelectedDate <= 0)
+          {
+            printf ("<P><B>Bad date</B> \"%s\" after Selected "
+              "keyword, ignoring it.\n", aFields[1].c_str ());
+          }
+          else
+          {
+            VenueIterator iVenue = g_AllVenues.find (aFields[2]);
+            if (iVenue == g_AllVenues.end ())
+            {
+              printf ("<P><B>Unknown venue name</B> \"%s\" after Selected "
+                "keyword, ignoring it.\n", aFields[2].c_str ());
+            }
+            else
+            {
+              EventKeyRecord SelectedEventKey;
+              SelectedEventKey.m_EventTime = SelectedDate;
+              SelectedEventKey.m_Venue = iVenue;
+              EventIterator iSelectedEvent = g_AllEvents.find (SelectedEventKey);
+              if (iSelectedEvent == g_AllEvents.end ())
+              {
+                printf ("<P><B>No event exists</B> for date \"%s\" and venue "
+                  "\"%s\" after Selected keyword, ignoring it.\n",
+                  aFields[1].c_str (), aFields[2].c_str ());
+              }
+              else
+              {
+                iSelectedEvent->second.m_IsSelectedByUser = true;
+              }
+            }
+          }
+        }
+      }
+      else // Not a known keyword, must be an event, or just a date/time.
+      {
+        // Events start with an optional date/time, then a show name field,
+        // then a venue field.  Plain date/time has just the date/time and no
+        // fields after it.
+
+        int ShowNameFieldIndex = 0;
+
+        time_t NewDate = parsedate (aFields[0].c_str(), RunningDate);
+        if (NewDate > 0) // Got a valid date.
+        {
+#if 0
+          localtime_r (&NewDate, &BrokenUpDate);
+          printf ("Converted date \"%s\" to %s", aFields[0].c_str(),
+            asctime (&BrokenUpDate));
+#endif
+          // Update the running date, so subsequent times are based off this
+          // one.  Useful if the date is a subtitle like "Thursday, June 19"
+          // and subsequent entries just list the hour and minute, in
+          // increasing order.
+
+          RunningDate = NewDate;
+
+          ShowNameFieldIndex = 1;
+        }
+
+        if (nFields == 1 && ShowNameFieldIndex == 1)
+        {
+          // Just have a time/date entry, already processed.
+        }
+        else if (nFields == ShowNameFieldIndex + 2)
+        {
+          // Create an event using show and venue fields after the optional
+          // date field.  Also creates Show and Venue records if needed.
+
           ShowRecord NewShow;
-          ShowMap::value_type NewShowPair (aFields[1], NewShow);
+          ShowMap::value_type NewShowPair (
+            aFields[ShowNameFieldIndex], NewShow);
           std::pair<ShowIterator, bool> InsertShowResult (
             g_AllShows.insert (NewShowPair));
 
           VenueRecord NewVenue;
-          VenueMap::value_type NewVenuePair (aFields[2], NewVenue);
+          VenueMap::value_type NewVenuePair (
+            aFields[ShowNameFieldIndex + 1], NewVenue);
           std::pair<VenueIterator, bool> InsertVenueResult (
             g_AllVenues.insert (NewVenuePair));
 
           EventKeyRecord NewEventKey;
-          NewEventKey.m_EventTime = NewDate;
+          NewEventKey.m_EventTime = RunningDate;
           NewEventKey.m_Venue = InsertVenueResult.first;
 
           EventRecord NewEvent;
           NewEvent.m_ShowIter = InsertShowResult.first;
-          if (nFields >= 4 && aFields[3] == "Selected")
-            NewEvent.m_IsSelectedByUser = true;
 
           EventMap::value_type NewEventPair (NewEventKey, NewEvent);
           std::pair<EventIterator, bool> InsertEventResult (
             g_AllEvents.insert (NewEventPair));
           if (!InsertEventResult.second)
           {
+            localtime_r (&RunningDate, &BrokenUpDate);
+
             printf ("<P><B>Slight redundancy problem</B>: ignoring redundant "
               "occurance of an identical event (same place and time).  It is "
               "show \"%s\" (prior show is \"%s\"), venue \"%s\", at time %s",
@@ -1008,158 +1213,22 @@ void LoadStateInformation (const char *pBuffer)
             InsertVenueResult.first->second.m_EventCount++;
           }
         }
-      }
-      else // Don't have a date, look for keywords in the first field.
-      if (aFields[0] == "Favourite" && nFields >= 2)
-      {
-        // Favourite keyword is followed by a field identifying a show.
-
-        ShowIterator iShow = g_AllShows.find (aFields[1]);
-        if (iShow != g_AllShows.end ())
-          iShow->second.m_IsFavourite = true;
-        else
-          printf ("<P><B>Unknown show name</B> \"%s\" after Favourite "
-            "keyword, ignoring it.\n", aFields[1].c_str ());
-      }
-      else if (aFields[0] == "Setting" && nFields >= 3)
-      {
-        // Hopefully the important settings were written near the beginning,
-        // like the one which controls parsing of tabs and vertical bars.
-
-        g_AllSettings[aFields[1]] = aFields[2];
-
-        bOnlyTab = (0 != atoi (
-          g_AllSettings["UseOnlyTabForFieldSeparator"].c_str ()));
-      }
-      else if (aFields[0] == "ShowURL" && nFields >= 3)
-      {
-        ShowIterator iShow = g_AllShows.find (aFields[1]);
-        if (iShow != g_AllShows.end ())
-          iShow->second.m_ShowURL.assign (aFields[2]);
-        else
-          printf ("<P><B>Unknown show name</B> \"%s\" after ShowURL "
-            "keyword, ignoring it.\n", aFields[1].c_str ());
-      }
-      else if (aFields[0] == "ShowDuration" && nFields >= 3)
-      {
-        ShowIterator iShow = g_AllShows.find (aFields[1]);
-        if (iShow != g_AllShows.end ())
-          iShow->second.m_ShowDuration = 60 * atoi (aFields[2].c_str ());
-        else
-          printf ("<P><B>Unknown show name</B> \"%s\" after ShowDuration "
-            "keyword, ignoring it.\n", aFields[1].c_str ());
-      }
-      else if (aFields[0] == "VenueURL" && nFields >= 3)
-      {
-        // If the venue isn't found, create a default record for it,
-        // so non-show venues (street corners used in path finding) can
-        // have a URL too.
-
-        g_AllVenues[aFields[1]].m_VenueURL.assign (aFields[2]);
-      }
-      else if (aFields[0] == "TravelTime" && nFields >= 4)
-      {
-        VenueIterator iVenueFrom = g_AllVenues.find (aFields[1]);
-        if (iVenueFrom == g_AllVenues.end () && !aFields[1].empty())
+        else // Wrong number of fields for an event.
         {
-          VenueRecord NewVenue;
-          VenueMap::value_type NewVenuePair (aFields[1], NewVenue);
-          std::pair<VenueIterator, bool> InsertVenueResult (
-            g_AllVenues.insert (NewVenuePair));
-          iVenueFrom = InsertVenueResult.first;
-        }
-
-        VenueIterator iVenueTo = g_AllVenues.find (aFields[2]);
-        if (iVenueTo == g_AllVenues.end () && !aFields[2].empty())
-        {
-          VenueRecord NewVenue;
-          VenueMap::value_type NewVenuePair (aFields[2], NewVenue);
-          std::pair<VenueIterator, bool> InsertVenueResult (
-            g_AllVenues.insert (NewVenuePair));
-          iVenueTo = InsertVenueResult.first;
-        }
-
-        int Distance = atoi (aFields[3].c_str ());
-
-        int WorstDelay = 0;
-        if (nFields >= 5)
-          WorstDelay = atoi (aFields[4].c_str ());
-
-        const char *pNotes = "";
-        if (nFields >= 6)
-          pNotes = aFields[5].c_str ();
-
-        if (iVenueFrom != g_AllVenues.end () && iVenueTo != g_AllVenues.end ())
-        {
-          TravelTimeRecord NewTravelTime;
-          NewTravelTime.m_DistanceInMeters = Distance;
-          NewTravelTime.m_WorstCaseDelaySeconds = WorstDelay;
-          NewTravelTime.m_Notes.assign (pNotes);
-
-          TravelTimeMap::value_type NewTravelTimePair (
-            iVenueTo, NewTravelTime);
-
-          std::pair<TravelTimeIterator, bool> InsertTravelTimeResult (
-            iVenueFrom->second.m_TravelTimesToOtherPlaces.insert
-            (NewTravelTimePair));
-          if (!InsertTravelTimeResult.second)
-            printf ("<P><B>Already have a TravelTime entry</B> from %s to %s, "
-              "ignoring redundant entry.\n",
-              aFields[1].c_str (), aFields[2].c_str ());
-        }
-        else
-          printf ("<P><B>Empty venue name(s)</B> after TravelTime "
-            "keyword, ignoring it.\n");
-      }
-      else if (aFields[0] == "Selected" && nFields >= 3)
-      {
-        time_t SelectedDate = parsedate (aFields[1].c_str(), RunningDate);
-        if (SelectedDate <= 0)
-        {
-          printf ("<P><B>Bad date</B> \"%s\" after Selected "
-            "keyword, ignoring it.\n", aFields[1].c_str ());
-        }
-        else
-        {
-          VenueIterator iVenue = g_AllVenues.find (aFields[2]);
-          if (iVenue == g_AllVenues.end ())
+          printf ("<P><B>Ignoring unparseable line</B> with %d fields: ",
+            nFields);
+          for (iField = 0; iField < nFields; iField++)
           {
-            printf ("<P><B>Unknown venue name</B> \"%s\" after Selected "
-              "keyword, ignoring it.\n", aFields[2].c_str ());
-          }
-          else
-          {
-            EventKeyRecord SelectedEventKey;
-            SelectedEventKey.m_EventTime = SelectedDate;
-            SelectedEventKey.m_Venue = iVenue;
-            EventIterator iSelectedEvent = g_AllEvents.find (SelectedEventKey);
-            if (iSelectedEvent == g_AllEvents.end ())
+            if (iField >= MAX_FIELDS)
             {
-              printf ("<P><B>No event exists</B> for date \"%s\" and venue "
-                "\"%s\" after Selected keyword, ignoring it.\n",
-                aFields[1].c_str (), aFields[2].c_str ());
+              printf ("...");
+              break;
             }
-            else
-            {
-              iSelectedEvent->second.m_IsSelectedByUser = true;
-            }
+            printf ("%s%s", aFields[iField].c_str(),
+              (iField < nFields - 1) ? ", " : "");
           }
+          printf ("\n");
         }
-      }
-      else
-      {
-        printf ("<P><B>Ignoring unparseable line</B> with %d fields: ", nFields);
-        for (iField = 0; iField < nFields; iField++)
-        {
-          if (iField >= MAX_FIELDS)
-          {
-            printf ("...");
-            break;
-          }
-          printf ("%s%s", aFields[iField].c_str(),
-            (iField < nFields - 1) ? ", " : "");
-        }
-        printf ("\n");
       }
     }
 
@@ -1448,7 +1517,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -2011,11 +2080,17 @@ void WriteHTMLForm ()
     "details.  In general fields are separated by tabs or vertical bar \"|\" "
     "characters.  The first field specifies what to do with the rest of the "
     "line of raw data.  Here's the list of possibilities:\n<UL>\n");
+  printf ("<LI>An event is defined by an optional date and time field "
+    "followed by a show name field and then a venue name field.  You can also "
+    "specify a date or time by itself (such as \"Thursday, June 19, 2014\", "
+    "or \"7:00 PM\"), which will be used as the day / time for the event "
+    "definitions after it (they then only need to specify the time or nothing "
+    "to use the previous date or time).  Show names that are the same as "
+    "keywords or look like dates or times (pure numbers for example) won't "
+    "work; preceed them with at least the time.\n");
   printf ("<LI>\"Selected\" is followed by a date & time field, and a field "
-    "naming the venue.  That specifies an event the user will be attending, "
-    "and is the preferred way of selecting events rather than the old "
-    "\"Selected\" after the event definition way (easier for the user to cut "
-    "and paste).\n");
+    "naming the venue.  That is enough to specify an event the user will be "
+    "attending.\n");
   printf ("<LI>\"Favourite\" is followed by the show name.  That show is then "
     "marked as being one of the higher priority ones for the user to see.\n");
 
@@ -2031,12 +2106,6 @@ void WriteHTMLForm ()
   printf ("<LI>ToDo - need to finish writing this documentation.\n");
   printf ("</UL>\n");
 
-  printf ("<LI>An event is defined by a date and time field followed by a "
-    "show name field and then a venue name field.  There's an optional and "
-    "obsolete fourth field of \"Selected\" to show that the user is going to "
-    "that event.  You can also specify a date by itself (such as \"Thursday, "
-    "June 19, 2014\"), which will be used as the day for the event "
-    "definitions after it (they then only need to specify the time).\n");
   printf ("<LI>\"ShowURL\" has a second field that names a show and a third "
     "that specifies a web link to show information about the show.\n");
   printf ("<LI>\"ShowDuration\" is followed by the show name and the duration "
@@ -2100,7 +2169,7 @@ void WriteHTMLForm ()
   printf ("</UL>\n");
 
   printf ("<P><FONT SIZE=\"-1\">Software version "
-    "$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
     "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
     "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
@@ -2193,7 +2262,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.55 2018/06/29 16:05:18 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2581,12 +2650,19 @@ int main (int argc, char **argv)
   // in the URL for POSTing the form next time.  That way, if they copy and
   // paste the web page, it will have an absolute reference to the web server
   // and still work.  But yet also work with a LAN IP address as the host name.
+  // And preserve the http or https type of reference; we want to support both
+  // for compatibility with older unupgradable browsers.
 
   const char *pHostName;
   pHostName = getenv ("HTTP_HOST");
   if (pHostName != NULL)
   {
-    g_HostNameURLFragment.assign ("http://");
+    const char *pRequestScheme;
+    pRequestScheme = getenv ("REQUEST_SCHEME"); // Returns "http" or "https".
+    if (pRequestScheme == NULL || pRequestScheme[0] == 0)
+      pRequestScheme = "http";
+    g_HostNameURLFragment.assign (pRequestScheme);
+    g_HostNameURLFragment.append ("://");
     g_HostNameURLFragment.append (pHostName);
   }
   else
