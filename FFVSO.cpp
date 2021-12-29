@@ -1,16 +1,17 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $
  *
- * This is a web server CGI program for selecting events (shows) at the Ottawa
- * Fringe Theatre Festival to make up an individual's custom list.  Choices are
- * made on a web page with a checkbox for each show and the results saved as a
- * big blob of text in a text box on the same web page.  Statistics showing
- * conflicts in time, missing favourite shows and other such info guide the
- * user in selecting shows.
+ * This is a web server FastCGI program for selecting events (shows) at the
+ * Ottawa Fringe Theatre Festival to make up an individual's custom list.
+ * Choices are made on a web page with a checkbox for each show and the results
+ * saved as a big blob of text in a text box on the same web page.  Statistics
+ * showing conflicts in time, missing favourite shows and other such info guide
+ * the user in selecting shows.
  *
  * Copyright (C) 2014 by Alexander G. M. Smith.
  *
- * Command line to compile: g++ -Wall -I. -o FFVSO.cgi FFVSO.cpp parsedate.cpp
+ * Command line to compile:
+ * g++ -Wall -I. -o FFVSO.fcgi FFVSO.cpp parsedate.cpp /usr/local/lib/libfcgi.a
  *
  * Note that this uses the AGMS vacation coding style.  That means no tabs,
  * indents are two spaces, m_ is the prefix for member variables, g_ is the
@@ -34,6 +35,24 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.63  2021/12/28 20:01:31  agmsmith
+ * Reset the global statistics at the end of each run.
+ *
+ * Revision 1.62  2021/12/28 18:07:57  agmsmith
+ * Print out the environment strings when debugging.
+ *
+ * Revision 1.61  2021/12/28 17:43:28  agmsmith
+ * Pass argc and argv to main loop, needed for debugging.
+ *
+ * Revision 1.60  2021/12/15 22:45:13  agmsmith
+ * Got FastCGI working finally.  Now create our own listening to the network
+ * socket and throw away other input file handles.  Oddly, spawn-fcgi which
+ * is supposed to do that, doesn't work (stdout gets discarded, not passed on).
+ *
+ * Revision 1.59  2021/12/13 21:50:59  agmsmith
+ * Converted from CGI to FastCGI interface to web server.  Means it
+ * no longer compiles in BeOS.  Needed for move to NGINX web server.
+ *
  * Revision 1.58  2019/05/16 21:23:45  agmsmith
  * Preserve https or http choice in the accessing URL when posting the form.
  *
@@ -246,6 +265,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h> // Open, close and other standard POSIX functions.
 #include <errno.h>
 #include <string.h>
 #include <math.h>
@@ -263,6 +283,9 @@
 #include <set>
 #include <string>
 #include <vector>
+
+#include <fastcgi.h>  // For FCGI_LISTENSOCK_FILENO.
+#include <fcgi_stdio.h> // Redefines the usual stdio with a hacked up one.
 
 
 /******************************************************************************
@@ -690,7 +713,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -1517,7 +1540,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -2169,7 +2192,7 @@ void WriteHTMLForm ()
   printf ("</UL>\n");
 
   printf ("<P><FONT SIZE=\"-1\">Software version "
-    "$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
     "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
     "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
@@ -2262,7 +2285,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.58 2019/05/16 21:23:45 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
@@ -2634,10 +2657,10 @@ void ComputeConflictsAndStatistics ()
 
 
 /******************************************************************************
- * Finally, the main program which drives it all.
+ * The main FastCGI processing loop contents.
  */
 
-int main (int argc, char **argv)
+int mainloop (int argc, char **argv)
 {
   FormNameToValuesMap::iterator iFormPair;
 
@@ -2698,6 +2721,15 @@ int main (int argc, char **argv)
   printf ("Content length is %d.\n", ContentLength);
   printf ("AmountRead is %d.\n", AmountRead);
   printf ("Original text: %s\n", g_InputFormText);
+  printf ("Environment strings are:\n");
+  {
+    int iEnv = 0;
+    char **ppEnv;
+    for (ppEnv = environ; *ppEnv != NULL; ppEnv++, iEnv++)
+    {
+      printf ("%02d: \"%s\"\n", iEnv, *ppEnv);
+    }
+  }
   printf ("</PRE>\n");
 #endif
 
@@ -2812,6 +2844,9 @@ int main (int argc, char **argv)
 
   printf ("</BODY>\n</HTML>\n");
 
+  // Clearing all variables at the end of the program paid off for FastCGI
+  // where the program becomes a repeated loop.
+
   g_EventsSortedByTimeAndShow.clear();
   g_AllEvents.clear();
   g_AllShows.clear();
@@ -2821,5 +2856,43 @@ int main (int argc, char **argv)
   delete [] g_InputFormText;
   g_InputFormText = NULL;
   g_HostNameURLFragment.clear();
+  g_Statistics.m_TotalNumberOfConflicts = 0;
+  g_Statistics.m_TotalNumberOfEventsScheduled = 0;
+  g_Statistics.m_TotalNumberOfRedundantShows = 0;
+  g_Statistics.m_TotalNumberOfUnseenFavouriteShows = 0;
+  g_Statistics.m_TotalNumberOfUnseenShows = 0;
+  g_Statistics.m_TotalSecondsWatched = 0;
   return 0;
+}
+
+
+/******************************************************************************
+ * Finally, the main program which drives it all.
+ */
+
+int main (int argc, char **argv)
+{
+  int returncode;
+  int sockfd;
+
+  // Open a socket listening for network connections, and force it to use file
+  // handle FCGI_LISTENSOCK_FILENO.  Then use that one as our FastCGI default
+  // input socket.  Needed since NGINX doesn't fire up FastCGI programs and the
+  // spawn-fcgi utility doesn't work right.
+
+  close (STDIN_FILENO);
+  close (STDOUT_FILENO);
+  close (STDERR_FILENO);
+  sockfd = FCGX_OpenSocket ("127.0.0.1:9000", 100);
+  if (sockfd != FCGI_LISTENSOCK_FILENO) {
+    close (FCGI_LISTENSOCK_FILENO);
+    dup2(sockfd, FCGI_LISTENSOCK_FILENO);
+    close(sockfd);
+  }
+
+  while (FCGI_Accept() >= 0)
+  {
+    returncode = mainloop(argc, argv);
+    FCGI_SetExitStatus(returncode);
+  }
 }
