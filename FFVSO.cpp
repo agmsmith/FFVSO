@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Fringe\040Festival\040Visitor\040Schedule\040Optimiser/RCSFFVSO/RCS/FFVSO.cpp,v 1.64 2025/06/09 01:28:06 agmsmith Exp $
  *
  * This is a web server FastCGI program for selecting events (shows) at the
  * Ottawa Fringe Theatre Festival to make up an individual's custom list.
@@ -10,7 +10,7 @@
  *
  * Copyright (C) 2014 by Alexander G. M. Smith.
  *
- * Command line to compile:
+ * Command line to compile in Linux:
  * g++ -Wall -I. -o FFVSO.fcgi FFVSO.cpp parsedate.cpp /usr/local/lib/libfcgi.a
  *
  * Note that this uses the AGMS vacation coding style.  That means no tabs,
@@ -35,6 +35,10 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * $Log: FFVSO.cpp,v $
+ * Revision 1.64  2025/06/09 01:28:06  agmsmith
+ * Added per-showing extra info field to event record, so you can say that this
+ * particular show requires something or is special in some way.
+ *
  * Revision 1.63  2021/12/28 20:01:31  agmsmith
  * Reset the global statistics at the end of each run.
  *
@@ -488,7 +492,8 @@ bool TravelTimeVenueComparator::operator() (
  * Class which contains information about a single event.  An event is uniquely
  * identified by a time and a venue (which will be our key).  The rest of the
  * event data specifies the show and whether the particular event is selected
- * by the user.
+ * by the user.  AGMS20250608 added extra info, like are masks required to see
+ * this particular showing?
  */
 
 typedef struct EventKeyStruct
@@ -541,6 +546,12 @@ typedef struct EventStruct
 
   ShowIterator m_ShowIter;
     /* Identifies the show that is being performed at this place and time. */
+
+  std::string m_ShowingSpecificInfo;
+    /* Extra information about this showing.  Like wether face masks need to be
+    worn (an aftereffect of the COVID-19 pandemic in 2020) for this particular
+    show.  If not an empty string it is printed after the show name, in
+    (brackets).  AGMS20250608 */
 
   PathVector m_PathToNextEvent;
     /* A list of venues giving the shortest path to the next event the user
@@ -713,7 +724,7 @@ void ResetDynamicSettings ()
   g_AllSettings["LastUpdateTime"].assign (asctime (&BrokenUpTime), 24);
 
   g_AllSettings["Version"] =
-    "$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.64 2025/06/09 01:28:06 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".";
 }
 
@@ -900,8 +911,9 @@ void BuildFormNameAndValuePairsFromFormInput ()
  * (no more tab separated fields after it) then it's a date or time which
  * becomes the current default date/time.  Finally, it may be an event, which
  * has an optional date/time field (combine with the default date to get an
- * absolute time), then a show name field and finally a venue name.  If there
- * are extra fields, then it isn't a valid event and is ignored.
+ * absolute time), then a show name field, a venue name and finally an optional
+ * extra per-showing info field.  If there more fields, then it isn't a valid
+ * event and is rejected.
  *
  * The keywords are used for storing extra information.  See near the end of
  * WriteHTMLForm() for their documentation.
@@ -1164,8 +1176,8 @@ void LoadStateInformation (const char *pBuffer)
       else // Not a known keyword, must be an event, or just a date/time.
       {
         // Events start with an optional date/time, then a show name field,
-        // then a venue field.  Plain date/time has just the date/time and no
-        // fields after it.
+        // then a venue field, then an optional extra info field.  Plain
+        // date/time has just the date/time and no fields after it.
 
         int ShowNameFieldIndex = 0;
 
@@ -1191,7 +1203,8 @@ void LoadStateInformation (const char *pBuffer)
         {
           // Just have a time/date entry, already processed.
         }
-        else if (nFields == ShowNameFieldIndex + 2)
+        else if (nFields == ShowNameFieldIndex + 2 ||
+        nFields == ShowNameFieldIndex + 3)
         {
           // Create an event using show and venue fields after the optional
           // date field.  Also creates Show and Venue records if needed.
@@ -1214,6 +1227,9 @@ void LoadStateInformation (const char *pBuffer)
 
           EventRecord NewEvent;
           NewEvent.m_ShowIter = InsertShowResult.first;
+          if (nFields == ShowNameFieldIndex + 3)
+            NewEvent.m_ShowingSpecificInfo.assign(
+              aFields[ShowNameFieldIndex + 2]);
 
           EventMap::value_type NewEventPair (NewEventKey, NewEvent);
           std::pair<EventIterator, bool> InsertEventResult (
@@ -1540,7 +1556,7 @@ void WriteHTMLHeader ()
       "Twitter.\">\n"
     "<META NAME=\"keywords\" CONTENT=\"Schedule, Organizer, Optimizer, "
       "Time table\">\n"
-    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $\">\n"
+    "<META NAME=\"version\" CONTENT=\"$Id: FFVSO.cpp,v 1.64 2025/06/09 01:28:06 agmsmith Exp $\">\n"
     "</HEAD>\n"
     "<BODY BGCOLOR=\"WHITE\" TEXT=\"BLACK\">\n");
 }
@@ -1572,7 +1588,15 @@ void WriteHTMLEventRow (EventIterator iEvent, bool bIncludeEditModeFeatures)
   std::string StartHTML;
   std::string EndHTML;
 
-  char ShowNameAppendedSequenceNumber [10];
+  std::string ShowNameAppendedExtraInfo; /* Empty or " (extra info)". */
+  if (!iEvent->second.m_ShowingSpecificInfo.empty ()) /* AGMS20250608 */
+  {
+    ShowNameAppendedExtraInfo.append(" (");
+    ShowNameAppendedExtraInfo.append(iEvent->second.m_ShowingSpecificInfo);
+    ShowNameAppendedExtraInfo.append(")");
+  }
+
+  char ShowNameAppendedSequenceNumber [10]; /* Empty or " #2" etc. */
   ShowNameAppendedSequenceNumber [0] = 0;
 
   if (bIncludeEditModeFeatures)
@@ -1697,14 +1721,15 @@ void WriteHTMLEventRow (EventIterator iEvent, bool bIncludeEditModeFeatures)
   // Dump out the event row.
 
   printf ("<TR VALIGN=\"TOP\"><TD>%s%s%s</TD><TD>%s%d%s</TD><TD>%s%s%s</TD>"
-    "<TD>%s%s%s%s</TD><TD>%s%s%s</TD>",
+    "<TD>%s%s%s%s%s</TD><TD>%s%s%s</TD>",
     StartHTML.c_str(), TimeString, EndHTML.c_str(),
     StartHTML.c_str(),
       (iEvent->second.m_ShowIter->second.m_ShowDuration + 59) / 60,
       EndHTML.c_str(),
     StartHTML.c_str(), SpareTimeAfterThisShowString, EndHTML.c_str(),
     StartShowHTML.c_str(), iEvent->second.m_ShowIter->first.c_str(),
-      ShowNameAppendedSequenceNumber, EndShowHTML.c_str(),
+      ShowNameAppendedSequenceNumber, ShowNameAppendedExtraInfo.c_str(),
+      EndShowHTML.c_str(),
     StartVenueHTML.c_str(),
       iEvent->first.m_Venue->first.c_str(), EndVenueHTML.c_str()
     );
@@ -1977,10 +2002,13 @@ void WriteHTMLForm ()
     }
 
     strftime (TimeString, sizeof (TimeString), "%H:%M", &BrokenUpDate);
-    snprintf (OutputBuffer, sizeof (OutputBuffer), "%s%c%s%c%s\n",
+    bool empty_extra = iEvent->second.m_ShowingSpecificInfo.empty(); 
+    snprintf (OutputBuffer, sizeof (OutputBuffer),
+      empty_extra ? "%s%c%s%c%s\n" : "%s%c%s%c%s%c%s\n", /* AGMS20250608 */
       TimeString, Separator,
       iEvent->second.m_ShowIter->first.c_str(), Separator,
-      iEvent->first.m_Venue->first.c_str());
+      iEvent->first.m_Venue->first.c_str(), Separator,
+      iEvent->second.m_ShowingSpecificInfo.c_str());
     EncodeAndPrintText (OutputBuffer);
   }
 
@@ -2104,7 +2132,9 @@ void WriteHTMLForm ()
     "characters.  The first field specifies what to do with the rest of the "
     "line of raw data.  Here's the list of possibilities:\n<UL>\n");
   printf ("<LI>An event is defined by an optional date and time field "
-    "followed by a show name field and then a venue name field.  You can also "
+    "followed by a show name field and then a venue name field and finally an "
+    "optional extra showing specific info (like are face masks required) "
+    "field.  You can also "
     "specify a date or time by itself (such as \"Thursday, June 19, 2014\", "
     "or \"7:00 PM\"), which will be used as the day / time for the event "
     "definitions after it (they then only need to specify the time or nothing "
@@ -2192,7 +2222,7 @@ void WriteHTMLForm ()
   printf ("</UL>\n");
 
   printf ("<P><FONT SIZE=\"-1\">Software version "
-    "$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.64 2025/06/09 01:28:06 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".  This program is "
     "copyright 2014 by Alexander G. M. Smith.  You can contact me at <A "
     "HREF=\"mailto:?to=%%22Alexander G. M. Smith%%22 "
@@ -2285,7 +2315,7 @@ void WritePrintableListing ()
   strftime (TimeString, sizeof (TimeString), "%A, %B %d, %Y at %T",
     &BrokenUpDate);
   printf ("<P><FONT SIZE=\"-1\">Printed on %s.&nbsp;  Software version "
-    "$Id: FFVSO.cpp,v 1.63 2021/12/28 20:01:31 agmsmith Exp $ "
+    "$Id: FFVSO.cpp,v 1.64 2025/06/09 01:28:06 agmsmith Exp $ "
     "was compiled on " __DATE__ " at " __TIME__ ".</FONT>\n", TimeString);
 }
 
